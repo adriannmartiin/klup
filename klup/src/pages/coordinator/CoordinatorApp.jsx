@@ -159,7 +159,7 @@ const NAV_GROUPS = [
     { id:'finanzas',   label:'Finanzas',      icon:<Icon.Euro/> },
     { id:'documents',  label:'Documentos',    icon:<Icon.Folder/> },
     { id:'incidents',  label:'Incidencias',   icon:<Icon.Warning/> },
-    { id:'stats',      label:'Stats',         icon:<Icon.Chart/> },
+    
     { id:'settings',   label:'Ajustes',       icon:<Icon.Settings/> },
   ]},
 ];
@@ -850,28 +850,6 @@ export default function CoordinatorApp() {
               })}
             </>
           )}
-
-          {/* ── STATS ── */}
-          {tab === 'stats' && (
-            <>
-              <div className="section-label">Asistencia por deporte</div>
-              {sports.map((s,i) => {
-                const pct = [82,75,88,91,69,84][i]||80;
-                return (
-                  <div key={s.id} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:10 }}>
-                    <span style={{ width:80, fontSize:13, fontWeight:700, color:s.color, flexShrink:0 }}>{s.name}</span>
-                    <div style={{ flex:1 }}>
-                      <div className="progress-bar-wrap">
-                        <div className="progress-bar-fill" style={{ width:`${pct}%`, background:s.color }}/>
-                      </div>
-                    </div>
-                    <span style={{ width:36, fontSize:13, fontWeight:800, color:'var(--text)', textAlign:'right' }}>{pct}%</span>
-                  </div>
-                );
-              })}
-            </>
-          )}
-
           {/* ── SETTINGS ── */}
           {tab === 'settings' && (
             <div className="card">

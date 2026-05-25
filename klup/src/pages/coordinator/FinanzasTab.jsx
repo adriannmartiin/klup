@@ -1,109 +1,112 @@
 // ============================================================
-// KLUP — Finanzas Tab (v2 — todo expandido, edición directa)
+// KLUP — Finanzas (jerarquía deporte → grupo → atleta)
 // ============================================================
 import { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { SPORTS, GROUPS, ATHLETES, COACHES } from '../../lib/mockData';
 import { Icon } from '../../components/ui/index';
 
-const CONCEPT_DEFS = [
-  { id:'mensualidad', label:'Mensualidad',      type:'monthly', emoji:'📅', defaultAmount:26 },
-  { id:'ficha',       label:'Ficha federativa', type:'annual',  emoji:'🪪', defaultAmount:15 },
-  { id:'inscripcion', label:'Inscripción',       type:'once',    emoji:'📝', defaultAmount:30 },
-  { id:'equipacion',  label:'Equipación',        type:'once',    emoji:'👕', defaultAmount:45 },
-];
+// ── Precio efectivo con herencia ─────────────────────────────
+// null = heredar del nivel superior
 
-const TYPE_LABEL = { monthly:'mensual', annual:'anual', once:'único' };
+function initPrices() {
+  const p = {};
+  SPORTS.forEach(s => { p[s.id] = 26; });  // sport default
+  Object.values(GROUPS).forEach(g => { p[g.id] = null; });    // inherit sport
+  ATHLETES.forEach(a => { p[a.id] = null; });                 // inherit group
+  // Demo: un atleta con precio individual
+  p['a3'] = 13;
+  return p;
+}
 
-function initGroupConfig() {
-  const cfg = {};
-  Object.values(GROUPS).forEach(g => {
-    cfg[g.id] = {
-      mensualidad: { active:true,  amount:26 },
-      ficha:       { active:true,  amount:15 },
-      inscripcion: { active:false, amount:30 },
-      equipacion:  { active:false, amount:45 },
-    };
-  });
-  return cfg;
+function effectivePrice(prices, entityId, groupId, sportId) {
+  if (prices[entityId] !== null && prices[entityId] !== undefined) return prices[entityId];
+  if (groupId && prices[groupId] !== null && prices[groupId] !== undefined) return prices[groupId];
+  if (sportId) return prices[sportId] || 0;
+  return 0;
+}
+
+function isOverridden(prices, entityId) {
+  return prices[entityId] !== null && prices[entityId] !== undefined;
+}
+
+function scoreColor(v) {
+  return v >= 8 ? '#16a34a' : v >= 5 ? '#2563eb' : '#dc2626';
 }
 
 export default function FinanzasTab() {
-  const [view, setView] = useState('grupos'); // grupos | atletas | exportar
-  const [groupConfig, setGroupConfig] = useState(initGroupConfig);
-  const [overrides, setOverrides]     = useState({
-    a3: { mensualidad:{ amount:13, reason:'Solo 1 día/semana' } }
-  });
-  const [expandedAthlete, setExpandedAthlete] = useState(null);
-  const [editBuffer, setEditBuffer]           = useState({});
+  const [prices, setPrices] = useState(initPrices);
+  const [expandedSport, setExpandedSport] = useState(null);
+  const [expandedGroup, setExpandedGroup] = useState(null);
+  const [view, setView] = useState('grupos'); // grupos | exportar
 
-  const updateConcept = (gid, cid, field, val) => setGroupConfig(p => ({
-    ...p, [gid]: { ...p[gid], [cid]: { ...p[gid]?.[cid], [field]: val } }
-  }));
-
-  const athleteMonthly = (a) => {
-    const cfg = groupConfig[a.groupId] || {};
-    const ov  = overrides[a.id] || {};
-    let total = 0;
-    CONCEPT_DEFS.filter(c => c.type==='monthly').forEach(c => {
-      if (!cfg[c.id]?.active) return;
-      total += ov[c.id] ? ov[c.id].amount : (cfg[c.id]?.amount || 0);
-    });
-    return total;
+  const setPrice = (id, val) => {
+    setPrices(p => ({ ...p, [id]: val === '' ? null : Number(val) }));
   };
 
-  const sportMonthly = (sport) =>
-    sport.groups.reduce((acc,gid) => {
-      const g = GROUPS[gid]; if (!g) return acc;
-      return acc + ATHLETES.filter(a=>a.groupId===gid).reduce((s,a)=>s+athleteMonthly(a),0);
-    }, 0);
-
-  const totalMonthly = SPORTS.reduce((acc,s) => acc + sportMonthly(s), 0);
-
-  const saveOverride = (aid) => {
-    if (!editBuffer[aid]) return;
-    setOverrides(p => ({ ...p, [aid]: { ...(p[aid]||{}), ...editBuffer[aid] } }));
-    setEditBuffer(p => { const n={...p}; delete n[aid]; return n; });
-    setExpandedAthlete(null);
+  const resetToInherit = (id) => {
+    setPrices(p => ({ ...p, [id]: null }));
   };
+
+  // Revenue calculations
+  const athletePrice = (a) => effectivePrice(prices, a.id, a.groupId, GROUPS[a.groupId]?.sportId);
+  const groupRevenue = (g) => ATHLETES.filter(a => a.groupId === g.id).reduce((acc,a) => acc + athletePrice(a), 0);
+  const sportRevenue = (s) => s.groups.reduce((acc,gid) => {
+    const g = GROUPS[gid]; return g ? acc + groupRevenue(g) : acc;
+  }, 0);
+  const totalRevenue = SPORTS.reduce((acc,s) => acc + sportRevenue(s), 0);
+  const totalAthletes = ATHLETES.length;
 
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
-    const rows = [['Deporte','Grupo','Atleta','Curso','Mensualidad €','Personalizado']];
+    // Summary sheet
+    const sumRows = [['Deporte','Atletas','Precio base','Ingresos/mes']];
+    SPORTS.forEach(s => {
+      const ac = s.groups.reduce((acc,gid)=>acc+(GROUPS[gid]?.count||0),0);
+      sumRows.push([s.name, ac, prices[s.id]||0, sportRevenue(s)]);
+    });
+    sumRows.push([]); sumRows.push(['TOTAL','',totalAthletes,totalRevenue]);
+    const ws1 = XLSX.utils.aoa_to_sheet(sumRows);
+    ws1['!cols'] = [{wch:14},{wch:10},{wch:14},{wch:16}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Resumen');
+    // Detail sheet
+    const detRows = [['Deporte','Grupo','Atleta','Curso','Precio €/mes','Origen precio']];
     SPORTS.forEach(s => s.groups.forEach(gid => {
       const g = GROUPS[gid]; if (!g) return;
       ATHLETES.filter(a=>a.groupId===gid).forEach(a => {
-        rows.push([s.name, g.name, a.name, a.course, athleteMonthly(a), overrides[a.id]?'Sí':'No']);
+        const origin = isOverridden(prices,a.id) ? 'Individual'
+          : isOverridden(prices,g.id) ? 'Grupo'
+          : 'Deporte';
+        detRows.push([s.name, g.name, a.name, a.course, athletePrice(a), origin]);
       });
     }));
-    rows.push([]); rows.push(['TOTAL MENSUAL','','','',totalMonthly,'']);
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:14},{wch:16},{wch:22},{wch:14},{wch:16},{wch:14}];
-    XLSX.utils.book_append_sheet(wb, ws, 'Cobros');
-    XLSX.writeFile(wb, `klup-cobros-${new Date().toISOString().slice(0,7)}.xlsx`);
+    const ws2 = XLSX.utils.aoa_to_sheet(detRows);
+    ws2['!cols'] = [{wch:12},{wch:16},{wch:22},{wch:14},{wch:14},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Detalle');
+    XLSX.writeFile(wb, `klup-finanzas-${new Date().toISOString().slice(0,7)}.xlsx`);
   };
 
   return (
     <div>
-      {/* Summary bar */}
+      {/* Summary */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:10, marginBottom:20 }}>
         <div className="stat-big" style={{ background:'#dcfce7' }}>
           <div className="stat-big-num" style={{ color:'var(--presente)', fontSize:20 }}>
-            {totalMonthly.toLocaleString('es-ES')} €
+            {totalRevenue.toLocaleString('es-ES')} €
           </div>
           <div className="stat-big-label">Ingresos / mes</div>
         </div>
         <div className="stat-big">
-          <div className="stat-big-num">{ATHLETES.length}</div>
+          <div className="stat-big-num">{totalAthletes}</div>
           <div className="stat-big-label">Atletas</div>
         </div>
         <div className="stat-big">
-          <div className="stat-big-num">{totalMonthly>0?Math.round(totalMonthly/ATHLETES.length):0} €</div>
+          <div className="stat-big-num">{Math.round(totalRevenue/totalAthletes)||0} €</div>
           <div className="stat-big-label">Media / atleta</div>
         </div>
         <div className="stat-big" style={{ background:'#f0f7ff' }}>
           <div className="stat-big-num" style={{ color:'var(--blue)', fontSize:20 }}>
-            {(totalMonthly*10).toLocaleString('es-ES')} €
+            {(totalRevenue*10).toLocaleString('es-ES')} €
           </div>
           <div className="stat-big-label">Proyección anual</div>
         </div>
@@ -111,7 +114,7 @@ export default function FinanzasTab() {
 
       {/* View selector */}
       <div style={{ display:'flex', gap:4, marginBottom:18, borderBottom:'1px solid var(--border)' }}>
-        {[['grupos','Por grupos'],['atletas','Por atletas'],['exportar','Exportar']].map(([id,label]) => (
+        {[['grupos','Por grupos'],['exportar','Exportar']].map(([id,label]) => (
           <button key={id} onClick={() => setView(id)}
             style={{ padding:'8px 16px', fontWeight:view===id?700:500, fontSize:13,
               color:view===id?'var(--blue)':'var(--muted)', background:'none', border:'none',
@@ -126,244 +129,161 @@ export default function FinanzasTab() {
       {view === 'grupos' && (
         <>
           <div style={{ fontSize:12, color:'var(--muted)', marginBottom:14, lineHeight:1.6 }}>
-            Activa/desactiva conceptos por grupo y ajusta importes. Los cambios se reflejan en los totales al instante.
+            Edita el precio a nivel de deporte, grupo o atleta. Si no modificas un nivel, hereda el precio del nivel superior.
           </div>
+
           {SPORTS.map(sport => {
-            const sportRev = sportMonthly(sport);
-            const sportGroups = sport.groups.map(gid=>GROUPS[gid]).filter(Boolean);
-            if (!sportGroups.length) return null;
-            const sportPct = totalMonthly>0 ? Math.round((sportRev/totalMonthly)*100) : 0;
+            const sportPrice = prices[sport.id] || 0;
+            const sRev       = sportRevenue(sport);
+            const isExpSport = expandedSport === sport.id;
+            const sportGroups = sport.groups.map(gid => GROUPS[gid]).filter(Boolean);
+
             return (
-              <div key={sport.id} style={{ marginBottom:16 }}>
-                {/* Sport header */}
-                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:8,
-                  padding:'10px 14px', background:`${sport.color}08`, borderRadius:'var(--r-md)',
-                  border:`1.5px solid ${sport.color}30` }}>
-                  <span className="sport-dot-lg" style={{ background:sport.color }}/>
-                  <span style={{ fontSize:14, fontWeight:800, color:sport.color, flex:1 }}>{sport.name}</span>
-                  <div style={{ textAlign:'right' }}>
-                    <div style={{ fontSize:15, fontWeight:900, color:'var(--text)' }}>
-                      {sportRev.toLocaleString('es-ES')} €/mes
-                    </div>
-                    <div style={{ fontSize:11, color:'var(--muted)' }}>{sportPct}% del total</div>
+              <div key={sport.id} style={{ marginBottom:12 }}>
+                {/* Sport row */}
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px',
+                  background:`${sport.color}10`, borderRadius: isExpSport ? 'var(--r-md) var(--r-md) 0 0' : 'var(--r-md)',
+                  border:`1.5px solid ${sport.color}40`, cursor:'pointer' }}>
+                  <span style={{ width:10, height:10, borderRadius:'50%', background:sport.color, flexShrink:0 }}
+                    onClick={() => setExpandedSport(isExpSport?null:sport.id)}/>
+                  <span style={{ fontSize:15, fontWeight:800, color:sport.color, flex:1 }}
+                    onClick={() => setExpandedSport(isExpSport?null:sport.id)}>
+                    {sport.name}
+                  </span>
+                  <span style={{ fontSize:12, color:'var(--muted)', marginRight:4 }}
+                    onClick={() => setExpandedSport(isExpSport?null:sport.id)}>
+                    {sRev.toLocaleString('es-ES')} €/mes
+                  </span>
+                  {/* Sport price input */}
+                  <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <input type="number" min="0" value={sportPrice}
+                      onChange={e => setPrice(sport.id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width:64, padding:'5px 8px', borderRadius:'var(--r-sm)',
+                        border:`1.5px solid ${sport.color}60`, background:'var(--surface)',
+                        color:'var(--text)', fontSize:14, fontWeight:800, textAlign:'right' }}/>
+                    <span style={{ fontSize:12, color:'var(--muted)' }}>€</span>
                   </div>
+                  <svg width="14" height="14" style={{ color:'var(--muted)', flexShrink:0,
+                    transform:isExpSport?'rotate(180deg)':'none', transition:'transform .2s' }}
+                    onClick={() => setExpandedSport(isExpSport?null:sport.id)}>
+                    <Icon.ChevronDown/>
+                  </svg>
                 </div>
 
-                {sportGroups.map(g => {
-                  const cfg = groupConfig[g.id] || {};
-                  const gAthletes = ATHLETES.filter(a=>a.groupId===g.id);
-                  const gRev = gAthletes.reduce((acc,a)=>acc+athleteMonthly(a),0);
-                  const coach = COACHES.find(c=>c.id===g.coachId);
-                  return (
-                    <div key={g.id} style={{ background:'var(--surface)', borderRadius:'var(--r-md)',
-                      border:'1px solid var(--border)', marginBottom:8, overflow:'hidden' }}>
-                      {/* Group row */}
-                      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
-                        background:'var(--bg)', borderBottom:'1px solid var(--border)' }}>
-                        <div style={{ flex:1 }}>
-                          <div style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>{g.name}</div>
-                          <div style={{ fontSize:11, color:'var(--muted)' }}>
-                            {coach?.name||'Sin entrenador'} · {gAthletes.length} atletas
-                          </div>
-                        </div>
-                        <div style={{ fontSize:14, fontWeight:800, color:sport.color }}>
-                          {gRev.toLocaleString('es-ES')} €/mes
-                        </div>
-                      </div>
+                {/* Groups */}
+                {isExpSport && (
+                  <div style={{ border:`1.5px solid ${sport.color}30`, borderTop:'none',
+                    borderRadius:'0 0 var(--r-md) var(--r-md)', overflow:'hidden' }}>
+                    {sportGroups.map((g, gi) => {
+                      const gEffective  = isOverridden(prices,g.id) ? prices[g.id] : sportPrice;
+                      const gIsCustom   = isOverridden(prices,g.id);
+                      const isExpGroup  = expandedGroup === g.id;
+                      const gAthletes   = ATHLETES.filter(a => a.groupId === g.id);
+                      const gRev        = groupRevenue(g);
+                      const coach       = COACHES.find(c => c.id === g.coachId);
 
-                      {/* Concepts */}
-                      <div style={{ padding:'10px 14px' }}>
-                        {CONCEPT_DEFS.map(concept => {
-                          const c = cfg[concept.id] || { active:false, amount:concept.defaultAmount };
-                          return (
-                            <div key={concept.id} style={{ display:'flex', alignItems:'center', gap:10,
-                              padding:'7px 0', borderBottom:'0.5px solid var(--bg)' }}>
-                              {/* Toggle */}
-                              <div onClick={() => updateConcept(g.id, concept.id, 'active', !c.active)}
-                                style={{ width:18, height:18, borderRadius:4, flexShrink:0, cursor:'pointer',
-                                  border:`2px solid ${c.active?'var(--blue)':'var(--border)'}`,
-                                  background:c.active?'var(--blue)':'transparent', transition:'all .15s',
-                                  display:'flex', alignItems:'center', justifyContent:'center' }}>
-                                {c.active && <svg width="10" height="10" style={{ color:'white' }}><Icon.Check/></svg>}
-                              </div>
-                              <span style={{ fontSize:12, flex:1, color:c.active?'var(--text)':'var(--light)', fontWeight:500 }}>
-                                {concept.emoji} {concept.label}
-                                <span style={{ fontSize:10, color:'var(--light)', marginLeft:5 }}>({TYPE_LABEL[concept.type]})</span>
-                              </span>
-                              {/* Amount input */}
-                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                                <input type="number" min="0" value={c.amount}
-                                  disabled={!c.active}
-                                  onChange={e => updateConcept(g.id, concept.id, 'amount', Number(e.target.value))}
-                                  style={{ width:60, padding:'4px 8px', borderRadius:'var(--r-sm)',
-                                    border:'1.5px solid var(--border)', background:c.active?'var(--surface)':'var(--bg)',
-                                    color:'var(--text)', fontSize:13, fontWeight:700, textAlign:'right',
-                                    opacity:c.active?1:.4 }}/>
-                                <span style={{ fontSize:11, color:'var(--muted)' }}>€</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {/* Per-group total */}
-                        <div style={{ display:'flex', justifyContent:'space-between', paddingTop:8,
-                          marginTop:4, borderTop:'1px solid var(--border)' }}>
-                          <span style={{ fontSize:12, color:'var(--muted)' }}>
-                            Conceptos activos: {CONCEPT_DEFS.filter(c=>cfg[c.id]?.active).map(c=>c.label).join(', ')||'—'}
-                          </span>
-                          <span style={{ fontSize:13, fontWeight:800, color:'var(--text)' }}>
-                            {CONCEPT_DEFS.filter(c=>c.type==='monthly'&&cfg[c.id]?.active).reduce((acc,c)=>acc+(cfg[c.id]?.amount||0),0)} €/mes por atleta
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-        </>
-      )}
-
-      {/* ── POR ATLETAS ── */}
-      {view === 'atletas' && (
-        <>
-          <div style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>
-            Los atletas con precio personalizado tienen un importe distinto al de su grupo.
-          </div>
-          {/* Summary of overrides */}
-          {Object.keys(overrides).filter(id=>Object.keys(overrides[id]).length>0).length > 0 && (
-            <div style={{ background:'#fef3c7', border:'1px solid #fde68a', borderRadius:'var(--r-md)',
-              padding:'10px 14px', marginBottom:14 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#92400e', marginBottom:6 }}>PRECIOS PERSONALIZADOS ACTIVOS</div>
-              {Object.keys(overrides).filter(id=>Object.keys(overrides[id]).length>0).map(aid => {
-                const a = ATHLETES.find(x=>x.id===aid); if (!a) return null;
-                const sport = SPORTS.find(s=>s.groups.includes(a.groupId));
-                return (
-                  <div key={aid} style={{ display:'flex', gap:8, fontSize:12, color:'#92400e', marginBottom:2 }}>
-                    <span style={{ fontWeight:700 }}>{a.name}</span>
-                    <span>·</span><span>{sport?.name}</span>
-                    <span style={{ marginLeft:'auto', fontWeight:800 }}>{athleteMonthly(a)} €/mes</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {SPORTS.map(sport => {
-            const sportGroups = sport.groups.map(gid=>GROUPS[gid]).filter(Boolean);
-            return sportGroups.map(g => {
-              const gAthletes = ATHLETES.filter(a=>a.groupId===g.id);
-              if (!gAthletes.length) return null;
-              const cfg = groupConfig[g.id] || {};
-              const baseMonthly = CONCEPT_DEFS
-                .filter(c=>c.type==='monthly'&&cfg[c.id]?.active)
-                .reduce((acc,c)=>acc+(cfg[c.id]?.amount||0),0);
-              return (
-                <div key={g.id} style={{ marginBottom:12 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', marginBottom:6,
-                    display:'flex', gap:8, alignItems:'center' }}>
-                    <span className="sport-dot" style={{ background:sport.color }}/>
-                    {sport.name} · {g.name}
-                    <span style={{ marginLeft:'auto' }}>Base: {baseMonthly} €/mes</span>
-                  </div>
-                  <div style={{ background:'var(--surface)', borderRadius:'var(--r-md)', border:'1px solid var(--border)', overflow:'hidden' }}>
-                    {gAthletes.map((a,i) => {
-                      const monthly = athleteMonthly(a);
-                      const hasOv   = overrides[a.id] && Object.keys(overrides[a.id]).length>0;
-                      const isExp   = expandedAthlete===a.id;
                       return (
-                        <div key={a.id} style={{ borderBottom:i<gAthletes.length-1?'1px solid var(--bg)':undefined }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px',
-                            background:isExp?'var(--bg)':undefined, cursor:'pointer' }}
-                            onClick={() => setExpandedAthlete(isExp?null:a.id)}>
-                            <div className="avatar avatar-sm" style={{ background:`${sport.color}20`, color:sport.color }}>
-                              {a.avatar}
-                            </div>
-                            <div style={{ flex:1 }}>
-                              <div style={{ fontSize:13, fontWeight:600, color:'var(--text)', display:'flex', alignItems:'center', gap:6 }}>
-                                {a.name}
-                                {hasOv && <span style={{ fontSize:9, background:'#fef3c7', color:'#92400e',
-                                  fontWeight:800, padding:'1px 5px', borderRadius:4 }}>PERSONALIZADO</span>}
+                        <div key={g.id} style={{ borderBottom: gi<sportGroups.length-1 ? '1px solid var(--bg)' : undefined }}>
+                          {/* Group row */}
+                          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 16px 10px 28px',
+                            background:isExpGroup?'var(--bg)':undefined, cursor:'pointer' }}>
+                            <div style={{ width:7, height:7, borderRadius:'50%', background:`${sport.color}60`, flexShrink:0 }}
+                              onClick={() => setExpandedGroup(isExpGroup?null:g.id)}/>
+                            <div style={{ flex:1, minWidth:0 }} onClick={() => setExpandedGroup(isExpGroup?null:g.id)}>
+                              <div style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>{g.name}</div>
+                              <div style={{ fontSize:11, color:'var(--muted)' }}>
+                                {coach?.name||'—'} · {gAthletes.length} atletas · {gRev} €/mes
                               </div>
-                              <div style={{ fontSize:11, color:'var(--light)' }}>{a.course}</div>
                             </div>
-                            <span style={{ fontSize:14, fontWeight:800, color:hasOv?'#d97706':'var(--text)' }}>
-                              {monthly} €
-                            </span>
-                            <svg width="13" height="13" style={{ color:'var(--light)', transform:isExp?'rotate(180deg)':'none', transition:'transform .2s' }}>
+                            {/* Group price */}
+                            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                              {gIsCustom && (
+                                <button title="Volver a heredar del deporte"
+                                  onClick={() => resetToInherit(g.id)}
+                                  style={{ fontSize:10, color:'var(--tarde)', background:'var(--tarde-bg)',
+                                    border:'none', borderRadius:99, padding:'1px 6px', cursor:'pointer', fontWeight:700 }}>
+                                  custom ✕
+                                </button>
+                              )}
+                              {!gIsCustom && (
+                                <span style={{ fontSize:10, color:'var(--muted)', background:'var(--bg)',
+                                  borderRadius:99, padding:'1px 6px', fontWeight:600 }}>
+                                  hereda
+                                </span>
+                              )}
+                              <input type="number" min="0" value={gEffective}
+                                onChange={e => setPrice(g.id, e.target.value)}
+                                onClick={e => e.stopPropagation()}
+                                style={{ width:60, padding:'4px 7px', borderRadius:'var(--r-sm)',
+                                  border:`1.5px solid ${gIsCustom?sport.color:'var(--border)'}`,
+                                  background:'var(--surface)', color:'var(--text)',
+                                  fontSize:13, fontWeight:700, textAlign:'right' }}/>
+                              <span style={{ fontSize:11, color:'var(--muted)' }}>€</span>
+                            </div>
+                            <svg width="13" height="13" style={{ color:'var(--light)', flexShrink:0,
+                              transform:isExpGroup?'rotate(180deg)':'none', transition:'transform .2s' }}
+                              onClick={() => setExpandedGroup(isExpGroup?null:g.id)}>
                               <Icon.ChevronDown/>
                             </svg>
                           </div>
-                          {isExp && (
-                            <div style={{ padding:'12px 14px', background:'var(--bg)', borderTop:'1px solid var(--border)' }}>
-                              {CONCEPT_DEFS.filter(c=>c.type==='monthly'&&cfg[c.id]?.active).map(concept => {
-                                const existing = overrides[a.id]?.[concept.id];
+
+                          {/* Athletes */}
+                          {isExpGroup && (
+                            <div style={{ background:'var(--surface)', borderTop:'1px solid var(--border)' }}>
+                              {gAthletes.map((a, ai) => {
+                                const aEffective = athletePrice(a);
+                                const aIsCustom  = isOverridden(prices, a.id);
                                 return (
-                                  <div key={concept.id} style={{ marginBottom:10 }}>
-                                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
-                                      <span style={{ fontSize:12, fontWeight:600, color:'var(--text)' }}>
-                                        {concept.emoji} {concept.label}
-                                      </span>
-                                      <span style={{ fontSize:11, color:'var(--muted)' }}>
-                                        Base del grupo: {cfg[concept.id]?.amount||0} €
-                                      </span>
+                                  <div key={a.id} style={{ display:'flex', alignItems:'center', gap:10,
+                                    padding:'8px 16px 8px 44px',
+                                    borderBottom:ai<gAthletes.length-1?'1px solid var(--bg)':undefined }}>
+                                    <div className="avatar avatar-sm"
+                                      style={{ background:`${sport.color}15`, color:sport.color, flexShrink:0 }}>
+                                      {a.avatar}
                                     </div>
-                                    <div style={{ display:'flex', gap:8 }}>
-                                      <input type="number" min="0"
-                                        placeholder={`${cfg[concept.id]?.amount||0} (base)`}
-                                        defaultValue={existing?.amount??''}
-                                        onChange={e => setEditBuffer(p => ({
-                                          ...p,
-                                          [a.id]: { ...(p[a.id]||{}),
-                                            [concept.id]: { ...(p[a.id]?.[concept.id]||{}), amount:Number(e.target.value) }
-                                          }
-                                        }))}
-                                        style={{ width:80, padding:'6px 8px', borderRadius:'var(--r-sm)',
-                                          border:'1.5px solid var(--border)', background:'var(--surface)',
-                                          color:'var(--text)', fontSize:13, fontWeight:700 }}/>
-                                      <span style={{ fontSize:12, color:'var(--muted)', alignSelf:'center' }}>€/mes</span>
-                                      <input type="text" placeholder="Motivo (ej: 1 día/semana)"
-                                        defaultValue={existing?.reason??''}
-                                        onChange={e => setEditBuffer(p => ({
-                                          ...p,
-                                          [a.id]: { ...(p[a.id]||{}),
-                                            [concept.id]: { ...(p[a.id]?.[concept.id]||{}), reason:e.target.value }
-                                          }
-                                        }))}
-                                        style={{ flex:1, padding:'6px 10px', borderRadius:'var(--r-sm)',
-                                          border:'1.5px solid var(--border)', background:'var(--surface)',
-                                          color:'var(--text)', fontSize:12 }}/>
-                                      {existing && (
-                                        <button style={{ fontSize:11, color:'var(--ausente)', fontWeight:700,
-                                          background:'none', border:'none', cursor:'pointer', whiteSpace:'nowrap' }}
-                                          onClick={() => setOverrides(p => {
-                                            const u={...(p[a.id]||{})}; delete u[concept.id];
-                                            return {...p,[a.id]:u};
-                                          })}>
-                                          Quitar
+                                    <div style={{ flex:1, minWidth:0 }}>
+                                      <div style={{ fontSize:13, color:'var(--text)', fontWeight:500 }} className="truncate">
+                                        {a.name}
+                                      </div>
+                                      <div style={{ fontSize:10, color:'var(--light)' }}>{a.course}</div>
+                                    </div>
+                                    {/* Athlete price */}
+                                    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                                      {aIsCustom && (
+                                        <button title="Volver a heredar del grupo"
+                                          onClick={() => resetToInherit(a.id)}
+                                          style={{ fontSize:10, color:'var(--tarde)', background:'var(--tarde-bg)',
+                                            border:'none', borderRadius:99, padding:'1px 6px', cursor:'pointer', fontWeight:700 }}>
+                                          custom ✕
                                         </button>
                                       )}
+                                      {!aIsCustom && (
+                                        <span style={{ fontSize:10, color:'var(--muted)', background:'var(--bg)',
+                                          borderRadius:99, padding:'1px 6px', fontWeight:600 }}>
+                                          hereda
+                                        </span>
+                                      )}
+                                      <input type="number" min="0" value={aEffective}
+                                        onChange={e => setPrice(a.id, e.target.value)}
+                                        style={{ width:56, padding:'4px 7px', borderRadius:'var(--r-sm)',
+                                          border:`1.5px solid ${aIsCustom?'var(--tarde)':'var(--border)'}`,
+                                          background: aIsCustom ? 'var(--tarde-bg)' : 'var(--surface)',
+                                          color:'var(--text)', fontSize:13, fontWeight:700, textAlign:'right' }}/>
+                                      <span style={{ fontSize:11, color:'var(--muted)' }}>€</span>
                                     </div>
                                   </div>
                                 );
                               })}
-                              <div style={{ display:'flex', gap:8, marginTop:4 }}>
-                                <button className="btn btn-ghost btn-sm" style={{ flex:1 }}
-                                  onClick={() => { setExpandedAthlete(null); setEditBuffer({}); }}>Cancelar</button>
-                                <button className="btn btn-primary btn-sm" style={{ flex:1 }}
-                                  onClick={() => saveOverride(a.id)}>
-                                  Guardar precio individual
-                                </button>
-                              </div>
                             </div>
                           )}
                         </div>
                       );
                     })}
                   </div>
-                </div>
-              );
-            });
+                )}
+              </div>
+            );
           })}
         </>
       )}
@@ -371,31 +291,90 @@ export default function FinanzasTab() {
       {/* ── EXPORTAR ── */}
       {view === 'exportar' && (
         <>
-          <div className="card" style={{ marginBottom:12 }}>
-            <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
-              <div style={{ width:44, height:44, background:'#dcfce7', borderRadius:'var(--r-md)',
-                display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:22 }}>📊</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:15, fontWeight:700, color:'var(--text)', marginBottom:4 }}>Excel completo (.xlsx)</div>
-                <div style={{ fontSize:12, color:'var(--muted)', marginBottom:10, lineHeight:1.6 }}>
-                  Incluye todos los atletas con sus cobros individuales, totales por grupo y deporte.
+          {/* Preview table */}
+          <div style={{ background:'var(--surface)', border:'1px solid var(--border)',
+            borderRadius:'var(--r-md)', overflow:'hidden', marginBottom:16 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 80px 80px',
+              padding:'8px 14px', background:'var(--bg)', borderBottom:'1px solid var(--border)',
+              fontSize:11, fontWeight:700, color:'var(--muted)' }}>
+              <span>Deporte / Grupo / Atleta</span>
+              <span style={{ textAlign:'right' }}>Precio</span>
+              <span style={{ textAlign:'right' }}>Origen</span>
+              <span style={{ textAlign:'right' }}>Total/mes</span>
+            </div>
+            {SPORTS.map(sport => {
+              const sRev = sportRevenue(sport);
+              return (
+                <div key={sport.id}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 80px 80px',
+                    padding:'9px 14px', background:`${sport.color}08`,
+                    borderBottom:'1px solid var(--border)', fontWeight:700 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ width:8,height:8,borderRadius:'50%',background:sport.color,flexShrink:0 }}/>
+                      <span style={{ color:sport.color, fontSize:13 }}>{sport.name}</span>
+                    </div>
+                    <span style={{ textAlign:'right', fontSize:13, color:'var(--text)' }}>{prices[sport.id]}€</span>
+                    <span style={{ textAlign:'right', fontSize:10, color:'var(--muted)' }}>base</span>
+                    <span style={{ textAlign:'right', fontSize:13, fontWeight:800, color:'var(--text)' }}>{sRev}€</span>
+                  </div>
+                  {sport.groups.map(gid => {
+                    const g = GROUPS[gid]; if (!g) return null;
+                    const gA = ATHLETES.filter(a=>a.groupId===gid);
+                    const gRev = groupRevenue(g);
+                    const gIsCustom = isOverridden(prices,g.id);
+                    return (
+                      <div key={gid}>
+                        <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 80px 80px',
+                          padding:'7px 14px 7px 26px', borderBottom:'1px solid var(--bg)',
+                          background:'var(--surface)' }}>
+                          <span style={{ fontSize:12, fontWeight:600, color:'var(--text)' }}>{g.name}</span>
+                          <span style={{ textAlign:'right', fontSize:12, color: gIsCustom?'var(--tarde)':'var(--muted)' }}>
+                            {effectivePrice(prices,g.id,null,sport.id)}€
+                          </span>
+                          <span style={{ textAlign:'right', fontSize:10, color:'var(--light)' }}>
+                            {gIsCustom?'custom':'hereda'}
+                          </span>
+                          <span style={{ textAlign:'right', fontSize:12, fontWeight:600, color:'var(--text)' }}>{gRev}€</span>
+                        </div>
+                        {gA.map(a => {
+                          const aIsCustom = isOverridden(prices,a.id);
+                          if (!aIsCustom) return null; // only show athletes with custom price
+                          return (
+                            <div key={a.id} style={{ display:'grid', gridTemplateColumns:'1fr 80px 80px 80px',
+                              padding:'5px 14px 5px 40px', background:'var(--tarde-bg)',
+                              borderBottom:'1px solid var(--bg)' }}>
+                              <span style={{ fontSize:11, color:'var(--text)' }}>{a.name}</span>
+                              <span style={{ textAlign:'right', fontSize:11, fontWeight:800, color:'var(--tarde)' }}>
+                                {athletePrice(a)}€
+                              </span>
+                              <span style={{ textAlign:'right', fontSize:10, color:'var(--tarde)' }}>individual</span>
+                              <span style={{ textAlign:'right', fontSize:11, color:'var(--tarde)' }}>{athletePrice(a)}€</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
-                <button className="btn btn-primary" onClick={exportExcel}>↓ Descargar Excel</button>
-              </div>
+              );
+            })}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 80px 80px 80px',
+              padding:'10px 14px', borderTop:'2px solid var(--border)', fontWeight:800 }}>
+              <span style={{ fontSize:13, color:'var(--text)' }}>TOTAL</span>
+              <span/><span/>
+              <span style={{ textAlign:'right', fontSize:15, color:'var(--presente)' }}>
+                {totalRevenue}€
+              </span>
             </div>
           </div>
-          <div className="card">
-            <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
-              <div style={{ width:44, height:44, background:'#fee2e2', borderRadius:'var(--r-md)',
-                display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:22 }}>📄</div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:15, fontWeight:700, color:'var(--text)', marginBottom:4 }}>PDF imprimible</div>
-                <div style={{ fontSize:12, color:'var(--muted)', marginBottom:10 }}>
-                  Abre el diálogo de impresión del navegador para guardar como PDF.
-                </div>
-                <button className="btn btn-ghost" onClick={() => window.print()}>🖨 Imprimir / PDF</button>
-              </div>
-            </div>
+
+          <div style={{ display:'flex', gap:10 }}>
+            <button className="btn btn-primary" style={{ flex:1 }} onClick={exportExcel}>
+              📊 Descargar Excel
+            </button>
+            <button className="btn btn-ghost" style={{ flex:1 }} onClick={() => window.print()}>
+              🖨 Imprimir PDF
+            </button>
           </div>
         </>
       )}

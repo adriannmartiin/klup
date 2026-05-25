@@ -25,7 +25,7 @@ const GROUP_TABS = [
   { id:'solicitudes', label:'Solic.',    icon:<Icon.Bell/> },
   { id:'publicar',    label:'Publicar',  icon:<Icon.Edit/> },
   { id:'lista',       label:'Lista',     icon:<Icon.Check/> },
-  { id:'sesiones',    label:'Sesiones',  icon:<Icon.Clipboard/> },
+  { id:'sesiones',    label:'Planificación', icon:<Icon.Clipboard/> },
   { id:'mensajes',    label:'Mensajes',  icon:<Icon.Megaphone/> },
   { id:'incidencias', label:'Incid.',    icon:<Icon.Warning/> },
   { id:'galeria',     label:'Galería',   icon:<Icon.Photos/> },
