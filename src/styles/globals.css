@@ -1023,3 +1023,199 @@ img { max-width: 100%; display: block; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+/* ============================================================
+   RESPONSIVE LAYOUT — Desktop sidebar + Mobile bottom nav
+   ============================================================ */
+
+/* ── App shell override ── */
+.app-shell {
+  display: flex;
+  min-height: 100dvh;
+  background: var(--bg);
+  max-width: unset !important;
+  margin: unset !important;
+  flex-direction: column;
+}
+
+/* ── Desktop sidebar ── */
+.app-sidebar {
+  display: none;
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  flex-direction: column;
+  height: 100dvh;
+  position: sticky;
+  top: 0;
+  overflow-y: auto;
+}
+.sidebar-logo-wrap {
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-logo {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  color: var(--navy);
+}
+.sidebar-logo-sub { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+.sidebar-nav { padding: 10px 8px; flex: 1; }
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--t-base);
+  margin-bottom: 2px;
+  position: relative;
+}
+.sidebar-nav-item svg { width: 18px; height: 18px; flex-shrink: 0; stroke-width: 1.8; }
+.sidebar-nav-item:hover:not(.active) { background: var(--bg); color: var(--text); }
+.sidebar-nav-item.active { background: #dbeafe; color: var(--blue); font-weight: 700; }
+[data-theme="dark"] .sidebar-nav-item.active { background: rgba(37,99,235,.18); }
+.sidebar-nav-item .s-badge {
+  margin-left: auto;
+  background: var(--ausente);
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 99px;
+}
+.sidebar-divider { height: 1px; background: var(--border); margin: 6px 8px; }
+.sidebar-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--light);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  padding: 8px 12px 4px;
+}
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.sidebar-user { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.sidebar-user-info .sidebar-user-name { font-size: 13px; font-weight: 700; color: var(--text); }
+.sidebar-user-info .sidebar-user-role { font-size: 11px; color: var(--muted); }
+
+/* ── App main ── */
+.app-main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+/* ── Desktop content header ── */
+.desktop-header {
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-shrink: 0;
+}
+.desktop-header-title { font-size: 20px; font-weight: 800; color: var(--text); flex: 1; }
+.desktop-header-sub { font-size: 13px; color: var(--muted); }
+
+/* ── Mobile-only elements ── */
+.mobile-only { display: block; }
+
+/* ── Desktop breakpoint ── */
+@media (min-width: 768px) {
+  .app-shell { flex-direction: row; height: 100dvh; overflow: hidden; }
+  .app-sidebar { display: flex; }
+  .app-main { height: 100dvh; overflow-y: auto; overflow-x: hidden; }
+  .bottom-nav { display: none !important; }
+  .mobile-only { display: none !important; }
+  .desktop-header { display: flex; }
+  .page-content { padding: 24px !important; padding-bottom: 24px !important; }
+  .page-header { display: none; }
+}
+
+/* ── Group card (coach) ── */
+.group-card {
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  border: 1.5px solid var(--border);
+  padding: 16px;
+  cursor: pointer;
+  transition: all var(--t-base);
+  margin-bottom: 10px;
+}
+.group-card:hover { border-color: var(--blue); box-shadow: var(--shadow-md); }
+.group-card.active { border-color: var(--blue); background: #f0f7ff; }
+[data-theme="dark"] .group-card.active { background: rgba(37,99,235,.08); }
+
+/* ── Athlete card ── */
+.athlete-card {
+  background: var(--surface);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  padding: 12px;
+  cursor: pointer;
+  transition: all var(--t-base);
+  text-align: center;
+}
+.athlete-card:hover { border-color: var(--blue); }
+
+/* ── Expandable obs row ── */
+.obs-expand {
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 12px 14px;
+  animation: slideDown .15s ease;
+}
+
+/* ── Agenda item ── */
+.agenda-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  background: var(--surface);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.agenda-date-box {
+  width: 44px;
+  text-align: center;
+  flex-shrink: 0;
+  background: var(--bg);
+  border-radius: var(--r-sm);
+  padding: 6px 4px;
+}
+.agenda-date-day { font-size: 18px; font-weight: 900; color: var(--text); line-height: 1; }
+.agenda-date-month { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+
+/* ── Join group card ── */
+.join-card {
+  background: var(--surface);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-lg);
+  padding: 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--t-base);
+}
+.join-card:hover { border-color: var(--blue); background: #f0f7ff; }
+
+/* ── Desktop grid ── */
+@media (min-width: 768px) {
+  .desktop-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .desktop-grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+  .desktop-grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; }
+}

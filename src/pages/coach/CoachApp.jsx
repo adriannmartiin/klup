@@ -1,606 +1,752 @@
 // ============================================================
-// KLUP — Coach Panel (groups, attendance + swipe, publish, observations)
+// KLUP — Coach Panel (responsive, group-centric)
 // ============================================================
-import { useState, useRef } from 'react';
-import { useAuth, useTheme, useOnlineStatus, useSwipe } from '../../contexts/AuthContext';
-import { Icon, Avatar, OfflineBanner, ApprovalCard, AttBtn, Toggle, Modal, EmptyState } from '../../components/ui/index';
-import { SPORTS, GROUPS, ATHLETES, OBSERVATIONS, PENDING_REQUESTS, SKILL_DOMAINS,
-         SKILL_ASSESSMENTS, ATTENDANCE_TODAY, POSTS, getSport, timeAgo, countAttendance } from '../../lib/mockData';
+import { useState } from 'react';
+import { useAuth, useTheme, useOnlineStatus } from '../../contexts/AuthContext';
+import { Icon, Avatar, OfflineBanner, AttBtn, Toggle } from '../../components/ui/index';
+import { SPORTS, GROUPS, ATHLETES, OBSERVATIONS, PENDING_REQUESTS, POSTS,
+         getSport, timeAgo, countAttendance, ATTENDANCE_TODAY } from '../../lib/mockData';
 
-const VIEWS = [
-  { id:'groups',      label:'Grupos',     icon:<Icon.Users/> },
-  { id:'attendance',  label:'Asistencia', icon:<Icon.Check/> },
-  { id:'publish',     label:'Publicar',   icon:<Icon.Edit/> },
-  { id:'observations',label:'Informe',    icon:<Icon.File/> },
-  { id:'profile',     label:'Perfil',     icon:<Icon.User/> },
+// Coach's groups (mock: c1 has g1 + g4)
+const MY_GROUP_IDS = ['g1', 'g4'];
+
+const GROUP_TABS = [
+  { id:'agenda',       label:'Agenda',      icon:<Icon.Calendar/> },
+  { id:'atletas',      label:'Atletas',     icon:<Icon.Users/> },
+  { id:'solicitudes',  label:'Solicitudes', icon:<Icon.Bell/> },
+  { id:'publicar',     label:'Publicar',    icon:<Icon.Edit/> },
+  { id:'lista',        label:'Lista',       icon:<Icon.Check/> },
 ];
 
 export default function CoachApp() {
   const { user, logout } = useAuth();
-  const { theme, toggle: toggleTheme } = useTheme();
+  const { theme, toggle } = useTheme();
   const online = useOnlineStatus();
-  const [view, setView]             = useState('groups');
-  const [selectedGroup, setSelectedGroup] = useState('g1');
-  const [selectedAthlete, setSelectedAthlete] = useState(null);
+
+  const myGroups = MY_GROUP_IDS.map(id => GROUPS[id]).filter(Boolean);
+
+  // If only 1 group → auto-select; if multiple → show selector
+  const [selectedGroupId, setSelectedGroupId] = useState(
+    myGroups.length === 1 ? myGroups[0].id : null
+  );
+  const [activeTab, setActiveTab] = useState('agenda');
 
   // Attendance state
   const [attRecords, setAttRecords] = useState(ATTENDANCE_TODAY.g1?.records || {});
   const [attSaved, setAttSaved]     = useState(false);
+  const [expandedAthlete, setExpandedAthlete] = useState(null);
+  const [obsText, setObsText]   = useState({});
+  const [obsType, setObsType]   = useState({});
+  const [savedObs, setSavedObs] = useState([...OBSERVATIONS]);
 
   // Publish state
-  const [pubType, setPubType]       = useState('noticia');
-  const [pubTitle, setPubTitle]     = useState('');
+  const [pubType, setPubType]     = useState('noticia');
+  const [pubTitle, setPubTitle]   = useState('');
   const [pubContent, setPubContent] = useState('');
-  const [pubEventDate, setPubEventDate] = useState('');
-  const [pubSent, setPubSent]       = useState(false);
+  const [pubDate, setPubDate]     = useState('');
+  const [pubSent, setPubSent]     = useState(false);
 
-  // Observations
-  const [obsAthleteId, setObsAthleteId] = useState(null);
-  const [obsText, setObsText]           = useState('');
-  const [obsType, setObsType]           = useState('tecnica');
-  const [obsPrivate, setObsPrivate]     = useState(false);
-  const [observations, setObservations] = useState(OBSERVATIONS);
-  const [obsSent, setObsSent]           = useState(false);
+  // Requests
+  const [requests, setRequests] = useState(
+    PENDING_REQUESTS.filter(r => r.type === 'family')
+  );
 
-  // Pending family requests for this coach
-  const [requests, setRequests] = useState(PENDING_REQUESTS.filter(r => r.type==='family'));
+  // Selected athlete sheet
+  const [selectedAthlete, setSelectedAthlete] = useState(null);
 
-  // Active groups
-  const coachGroups = Object.values(GROUPS).filter(g => SPORTS.find(s => g.sportId === s.id));
-  const myGroups    = ['g1','g4'].map(id => GROUPS[id]).filter(Boolean);
-  const currentGroup = GROUPS[selectedGroup];
-  const currentSport = currentGroup ? getSport(currentGroup.sportId) : null;
-  const groupAthletes = ATHLETES.filter(a => a.groupId === selectedGroup);
+  const selectedGroup = selectedGroupId ? GROUPS[selectedGroupId] : null;
+  const sport = selectedGroup ? getSport(selectedGroup.sportId) : null;
+  const groupAthletes = selectedGroupId
+    ? ATHLETES.filter(a => a.groupId === selectedGroupId)
+    : [];
+  const counts = countAttendance(attRecords);
 
-  const saveAttendance = () => {
-    if (!online) {
-      // Would enqueue to IndexedDB
-    }
-    setAttSaved(true);
-    setTimeout(() => setAttSaved(false), 3000);
+  const saveAtt = () => { setAttSaved(true); setTimeout(() => setAttSaved(false), 3000); };
+  const markAll = (s) => {
+    const u = {};
+    groupAthletes.forEach(a => { u[a.id] = s; });
+    setAttRecords(p => ({ ...p, ...u }));
   };
 
-  const markAll = (state) => {
-    const updated = {};
-    groupAthletes.forEach(a => { updated[a.id] = state; });
-    setAttRecords(prev => ({ ...prev, ...updated }));
+  const saveObs = (athleteId) => {
+    if (!obsText[athleteId]?.trim()) return;
+    setSavedObs(p => [{
+      id:'o'+Date.now(), athleteId, coachId:'c1',
+      type: obsType[athleteId] || 'general',
+      content: obsText[athleteId],
+      isPrivate: false, createdAt: new Date()
+    }, ...p]);
+    setObsText(p => ({ ...p, [athleteId]: '' }));
+    setExpandedAthlete(null);
   };
 
   const publishPost = () => {
-    if (!pubTitle.trim() || !pubContent.trim()) return;
+    if (!pubTitle.trim()) return;
     setPubSent(true);
-    setPubTitle(''); setPubContent(''); setPubEventDate('');
-    setTimeout(() => setPubSent(false), 3000);
+    setPubTitle(''); setPubContent(''); setPubDate('');
+    setTimeout(() => setPubSent(false), 3500);
   };
 
-  const addObservation = () => {
-    if (!obsText.trim() || !obsAthleteId) return;
-    const newObs = {
-      id: 'o' + Date.now(), athleteId: obsAthleteId, coachId:'c1',
-      type: obsType, content: obsText, isPrivate: obsPrivate, createdAt: new Date()
-    };
-    setObservations(prev => [newObs, ...prev]);
-    setObsText(''); setObsAthleteId(null); setObsSent(true);
-    setTimeout(() => setObsSent(false), 3000);
-  };
+  const today = new Date().toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long' });
 
-  const handleApprove = (id) => setRequests(r => r.filter(x => x.id !== id));
-  const handleReject  = (id) => setRequests(r => r.filter(x => x.id !== id));
+  // ── Sidebar nav items ──────────────────────────────────────
 
-  const counts = countAttendance(attRecords);
-  const today  = new Date().toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long' });
-  const todayCap = today.charAt(0).toUpperCase() + today.slice(1);
+  const sidebarGroups = myGroups.map(g => {
+    const s = getSport(g.sportId);
+    return { g, s };
+  });
 
   return (
     <div className="app-shell">
       {!online && <OfflineBanner/>}
 
-      {/* Header */}
-      <header className="page-header">
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-          <div>
-            <div className="header-klup-tag">KLUP</div>
-            <div className="header-title">Hola, {user?.name?.split(' ')[0]}</div>
-            <div className="header-subtitle">Escolapias Calasanz</div>
+      {/* ── SIDEBAR (desktop) ── */}
+      <aside className="app-sidebar">
+        <div className="sidebar-logo-wrap">
+          <div className="sidebar-logo">Klup</div>
+          <div className="sidebar-logo-sub">Panel Entrenador</div>
+        </div>
+
+        <nav className="sidebar-nav">
+          <div className="sidebar-section-label">Mis grupos</div>
+          {sidebarGroups.map(({ g, s }) => (
+            <button key={g.id}
+              className={`sidebar-nav-item ${selectedGroupId === g.id ? 'active' : ''}`}
+              onClick={() => { setSelectedGroupId(g.id); setActiveTab('agenda'); }}>
+              <span style={{ width:8, height:8, borderRadius:'50%', background:s?.color,
+                flexShrink:0, display:'inline-block' }}/>
+              <span style={{ flex:1 }}>{s?.name} · {g.name}</span>
+              <span style={{ fontSize:11, color:'var(--light)' }}>{g.count}</span>
+            </button>
+          ))}
+
+          {selectedGroup && (
+            <>
+              <div className="sidebar-divider"/>
+              <div className="sidebar-section-label">{sport?.name} · {selectedGroup.name}</div>
+              {GROUP_TABS.map(t => (
+                <button key={t.id}
+                  className={`sidebar-nav-item ${activeTab === t.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(t.id)}>
+                  <svg>{t.icon}</svg>
+                  {t.label}
+                  {t.id === 'solicitudes' && requests.length > 0 &&
+                    <span className="s-badge">{requests.length}</span>}
+                  {t.id === 'lista' && counts.A > 0 &&
+                    <span className="s-badge" style={{ background:'var(--tarde)' }}>{counts.A}A</span>}
+                </button>
+              ))}
+            </>
+          )}
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            <div className="avatar avatar-md" style={{ background:'#dbeafe', color:'var(--blue)' }}>
+              {user?.avatar || 'JM'}
+            </div>
+            <div className="sidebar-user-info">
+              <div className="sidebar-user-name">{user?.name}</div>
+              <div className="sidebar-user-role">Entrenador</div>
+            </div>
           </div>
-          <button className="theme-toggle" onClick={toggleTheme} aria-label="Tema">
-            <svg width="16" height="16">{theme==='dark'?<Icon.Sun/>:<Icon.Moon/>}</svg>
+          <button style={{ display:'flex', alignItems:'center', gap:6, width:'100%',
+            padding:'8px 10px', borderRadius:'var(--r-md)', border:'1px solid var(--border)',
+            background:'none', color:'var(--ausente)', fontSize:13, fontWeight:600, cursor:'pointer' }}
+            onClick={logout}>
+            <svg width="15" height="15"><Icon.Logout/></svg>
+            Cerrar sesión
           </button>
         </div>
-        <div className="header-pills">
-          <span className="header-pill">{myGroups.length} grupos</span>
-          <span className="header-pill">{myGroups.reduce((acc,g) => acc+g.count,0)} deportistas</span>
-          {requests.length > 0 && <span className="header-pill warning">{requests.length} solicitud{requests.length>1?'es':''}</span>}
-        </div>
-      </header>
+      </aside>
 
-      <main className="page-content">
+      {/* ── MAIN ── */}
+      <div className="app-main">
 
-        {/* ── GROUPS ── */}
-        {view === 'groups' && (
-          <>
-            {requests.length > 0 && (
-              <>
-                <div className="warning-banner">
-                  <svg width="15" height="15"><Icon.Alert/></svg>
-                  {requests.length} familia{requests.length>1?'s':''} pendiente{requests.length>1?'s':''} de aprobación
-                </div>
-                {requests.map(r => (
-                  <ApprovalCard key={r.id}
-                    request={{ ...r, groupName:`${currentSport?.name} · ${currentGroup?.name}` }}
-                    onApprove={handleApprove} onReject={handleReject}/>
-                ))}
-              </>
+        {/* Mobile header */}
+        <header className="page-header mobile-only">
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div className="header-klup-tag">KLUP</div>
+              <div className="header-title">
+                {selectedGroup ? `${sport?.name} · ${selectedGroup.name}` : `Hola, ${user?.name?.split(' ')[0]}`}
+              </div>
+              <div className="header-subtitle">Escolapias Calasanz</div>
+            </div>
+            <button className="theme-toggle" onClick={toggle}>
+              <svg width="16" height="16">{theme==='dark'?<Icon.Sun/>:<Icon.Moon/>}</svg>
+            </button>
+          </div>
+          {!selectedGroup && (
+            <div className="header-pills">
+              <span className="header-pill">{myGroups.length} grupos</span>
+              <span className="header-pill">{myGroups.reduce((a,g)=>a+g.count,0)} atletas</span>
+            </div>
+          )}
+        </header>
+
+        {/* Desktop header */}
+        {selectedGroup && (
+          <div className="desktop-header">
+            {myGroups.length > 1 && (
+              <button onClick={() => setSelectedGroupId(null)}
+                style={{ color:'var(--muted)', background:'none', border:'none', cursor:'pointer',
+                  fontSize:13, display:'flex', alignItems:'center', gap:4, fontWeight:500 }}>
+                <svg width="16" height="16"><Icon.ChevronRight style={{ transform:'rotate(180deg)' }}/></svg>
+                Grupos
+              </button>
             )}
+            <span style={{ color:'var(--light)' }}>/</span>
+            <span style={{ width:10, height:10, borderRadius:'50%', background:sport?.color,
+              display:'inline-block', flexShrink:0 }}/>
+            <span className="desktop-header-title">{sport?.name} · {selectedGroup.name}</span>
+            <span className="desktop-header-sub">{selectedGroup.count} atletas</span>
+            <button className="theme-toggle" style={{ background:'var(--bg)', border:'1px solid var(--border)',
+              color:'var(--muted)' }} onClick={toggle}>
+              <svg width="16" height="16">{theme==='dark'?<Icon.Sun/>:<Icon.Moon/>}</svg>
+            </button>
+          </div>
+        )}
 
+        {/* ── GROUP SELECTOR (mobile + desktop when no group selected) ── */}
+        {!selectedGroupId ? (
+          <div className="page-content">
             <div className="section-label">Mis grupos</div>
-            {myGroups.map(group => {
-              const sport = getSport(group.sportId);
-              const athletes = ATHLETES.filter(a => a.groupId === group.id);
+            {myGroups.map(g => {
+              const s = getSport(g.sportId);
+              const athletes = ATHLETES.filter(a => a.groupId === g.id);
               return (
-                <div key={group.id} className="card" style={{ border:`1.5px solid ${sport?.color}40`, marginBottom:12 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-                    <span className="sport-dot-lg" style={{ background:sport?.color }}/>
-                    <span style={{ fontSize:17, fontWeight:900, color:sport?.color }}>{sport?.name}</span>
-                    <span style={{ fontSize:12, color:'var(--muted)', fontWeight:500 }}>· {group.name}</span>
+                <div key={g.id} className="group-card" onClick={() => { setSelectedGroupId(g.id); setActiveTab('agenda'); }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                    <span style={{ width:12, height:12, borderRadius:'50%', background:s?.color }}/>
+                    <span style={{ fontSize:17, fontWeight:900, color:s?.color }}>{s?.name}</span>
+                    <span style={{ fontSize:13, color:'var(--muted)' }}>· {g.name}</span>
+                    <span style={{ marginLeft:'auto', fontSize:12, color:'var(--muted)',
+                      background:'var(--bg)', padding:'3px 8px', borderRadius:99, fontWeight:600 }}>
+                      {g.count}/{g.maxCapacity}
+                    </span>
                   </div>
-                  <div style={{ fontSize:12, color:'var(--muted)', marginBottom:12 }}>
-                    Escolapias Calasanz · {group.count} deportistas
-                    {group.count >= group.maxCapacity && <span style={{ color:'var(--ausente)', marginLeft:6, fontWeight:700 }}>· Completo</span>}
-                  </div>
-
-                  {/* Avatar stack */}
-                  <div className="avatar-stack" style={{ marginBottom:12 }}>
-                    {athletes.slice(0,4).map(a => (
+                  <div style={{ display:'flex', alignItems:'center', gap:0, marginBottom:10 }}>
+                    {athletes.slice(0,6).map(a => (
                       <div key={a.id} className="avatar avatar-sm"
-                        style={{ background:`${sport?.color}20`, color:sport?.color }}>
+                        style={{ background:`${s?.color}20`, color:s?.color,
+                          border:'2px solid var(--surface)', marginLeft:a===athletes[0]?0:-8 }}>
                         {a.avatar}
                       </div>
                     ))}
-                    {athletes.length > 4 && (
+                    {athletes.length > 6 && (
                       <div className="avatar avatar-sm"
-                        style={{ background:'var(--bg)', color:'var(--muted)' }}>
-                        +{athletes.length-4}
+                        style={{ background:'var(--bg)', color:'var(--muted)',
+                          border:'2px solid var(--surface)', marginLeft:-8 }}>
+                        +{athletes.length-6}
                       </div>
                     )}
                   </div>
-
                   <div style={{ display:'flex', gap:8 }}>
-                    <button className="btn btn-sm" style={{ flex:1, background:`${sport?.bg}`, color:sport?.color }}
-                      onClick={() => { setSelectedGroup(group.id); setView('attendance'); }}>
-                      <svg width="15" height="15"><Icon.Check/></svg>
-                      Pasar lista
-                    </button>
-                    <button className="btn btn-sm" style={{ flex:1, background:'#dbeafe', color:'#2563eb' }}
-                      onClick={() => { setSelectedGroup(group.id); setView('publish'); }}>
-                      <svg width="15" height="15"><Icon.Edit/></svg>
-                      Publicar
-                    </button>
+                    {GROUP_TABS.map(t => (
+                      <div key={t.id} style={{ flex:1, padding:'7px 4px', background:'var(--bg)',
+                        borderRadius:'var(--r-sm)', fontSize:10, fontWeight:700, color:'var(--muted)',
+                        textAlign:'center' }}>
+                        {t.label}
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
             })}
-
-            {/* Today's quick summary */}
-            <div className="section-label" style={{ marginTop:8 }}>Lista de hoy · {myGroups[0]?.name}</div>
-            <div className="card" style={{ padding:0 }}>
-              <div className="att-summary" style={{ padding:'11px 13px', marginBottom:0 }}>
-                {[['P', counts.P,'var(--presente-bg)','var(--presente)'],
-                  ['A', counts.A,'var(--ausente-bg)','var(--ausente)'],
-                  ['T', counts.T,'var(--tarde-bg)','var(--tarde)'],
-                  ['J', counts.J,'var(--justificado-bg)','var(--justificado)']].map(([l,n,bg,c]) => (
-                  <div key={l} className="att-pill" style={{ background:bg, color:c }}>{l} · {n}</div>
-                ))}
-              </div>
-              {groupAthletes.slice(0,3).map(a => (
-                <div key={a.id} className="athlete-row">
-                  <div className="avatar avatar-sm" style={{ background:`${currentSport?.color}20`, color:currentSport?.color }}>{a.avatar}</div>
-                  <div className="athlete-info">
-                    <div className="athlete-name">{a.name}</div>
-                    <div className="athlete-course">{a.course}</div>
-                  </div>
-                  <span className={`att-btn att-${attRecords[a.id]||'P'}`} style={{ fontSize:12 }}>
-                    {attRecords[a.id]||'P'}
-                  </span>
-                </div>
+          </div>
+        ) : (
+          <>
+            {/* Mobile tab bar */}
+            <div className="tab-bar mobile-only">
+              {GROUP_TABS.map(t => (
+                <button key={t.id} className={`tab-item ${activeTab===t.id?'active':''}`}
+                  onClick={() => setActiveTab(t.id)}>
+                  {t.label}
+                  {t.id==='solicitudes' && requests.length>0 &&
+                    <span style={{ background:'#dc2626',color:'white',borderRadius:99,
+                      padding:'1px 5px',fontSize:9,fontWeight:800,marginLeft:4 }}>
+                      {requests.length}
+                    </span>}
+                </button>
               ))}
-              <button style={{ width:'100%', padding:'10px', fontSize:13, fontWeight:700,
-                color:'var(--blue)', background:'none', border:'none', borderTop:'1px solid var(--bg)',
-                cursor:'pointer' }} onClick={() => setView('attendance')}>
-                Ver lista completa →
-              </button>
+            </div>
+
+            <div className="page-content">
+              {attSaved && <div className="toast-success"><svg width="15" height="15"><Icon.Check/></svg>Lista guardada</div>}
+              {pubSent  && <div className="toast-success"><svg width="15" height="15"><Icon.Check/></svg>Publicación enviada</div>}
+
+              {/* ── AGENDA ── */}
+              {activeTab === 'agenda' && <AgendaTab groupId={selectedGroupId} sport={sport}/>}
+
+              {/* ── ATLETAS ── */}
+              {activeTab === 'atletas' && (
+                <AtletasTab athletes={groupAthletes} sport={sport}
+                  observations={savedObs}
+                  onSelect={setSelectedAthlete}/>
+              )}
+
+              {/* ── SOLICITUDES ── */}
+              {activeTab === 'solicitudes' && (
+                <SolicitudesTab requests={requests} groups={GROUPS} sport={sport}
+                  onApprove={(id) => setRequests(r => r.filter(x => x.id !== id))}
+                  onReject={(id) => setRequests(r => r.filter(x => x.id !== id))}/>
+              )}
+
+              {/* ── PUBLICAR ── */}
+              {activeTab === 'publicar' && (
+                <PublicarTab pubType={pubType} setPubType={setPubType}
+                  pubTitle={pubTitle} setPubTitle={setPubTitle}
+                  pubContent={pubContent} setPubContent={setPubContent}
+                  pubDate={pubDate} setPubDate={setPubDate}
+                  onPublish={publishPost}/>
+              )}
+
+              {/* ── LISTA ── */}
+              {activeTab === 'lista' && (
+                <ListaTab athletes={groupAthletes} sport={sport}
+                  attRecords={attRecords} setAttRecords={setAttRecords}
+                  counts={counts} today={today}
+                  expandedAthlete={expandedAthlete} setExpandedAthlete={setExpandedAthlete}
+                  obsText={obsText} setObsText={setObsText}
+                  obsType={obsType} setObsType={setObsType}
+                  savedObs={savedObs} saveObs={saveObs}
+                  markAll={markAll} saveAtt={saveAtt} online={online}/>
+              )}
             </div>
           </>
         )}
 
-        {/* ── ATTENDANCE ── */}
-        {view === 'attendance' && (
-          <>
-            {/* Group selector */}
-            {myGroups.length > 1 && (
-              <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-                {myGroups.map(g => {
-                  const s = getSport(g.sportId);
-                  return (
-                    <button key={g.id}
-                      onClick={() => setSelectedGroup(g.id)}
-                      style={{ padding:'8px 14px', borderRadius:'var(--r-full)', fontSize:13, fontWeight:700,
-                        background: selectedGroup===g.id ? s?.bg : 'var(--surface)',
-                        color: selectedGroup===g.id ? s?.color : 'var(--muted)',
-                        border: `1.5px solid ${selectedGroup===g.id ? s?.color : 'var(--border)'}`,
-                        cursor:'pointer' }}>
-                      {s?.name} · {g.name}
+        {/* Mobile bottom nav */}
+        {selectedGroupId ? (
+          <nav className="bottom-nav mobile-only">
+            {GROUP_TABS.map(t => (
+              <button key={t.id} className={`nav-item ${activeTab===t.id?'active':''}`}
+                onClick={() => setActiveTab(t.id)}>
+                {t.id==='solicitudes' && requests.length>0 && <span className="nav-badge"/>}
+                <svg>{t.icon}</svg>
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <nav className="bottom-nav mobile-only">
+            <button className="nav-item active"><svg><Icon.Users/></svg><span>Grupos</span></button>
+            <button className="nav-item" onClick={logout}><svg><Icon.Logout/></svg><span>Salir</span></button>
+          </nav>
+        )}
+      </div>
+
+      {/* Athlete detail sheet */}
+      {selectedAthlete && (
+        <AthleteSheet athlete={selectedAthlete} sport={sport}
+          observations={savedObs.filter(o => o.athleteId === selectedAthlete.id && !o.isPrivate)}
+          attRecords={attRecords}
+          onClose={() => setSelectedAthlete(null)}/>
+      )}
+    </div>
+  );
+}
+
+// ── AGENDA TAB ───────────────────────────────────────────────
+
+function AgendaTab({ groupId, sport }) {
+  const posts = POSTS.filter(p => p.groupId === groupId);
+  const events = posts.filter(p => p.type === 'evento');
+  const recent = [...posts].sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt)).slice(0,5);
+  const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+  return (
+    <>
+      {events.length > 0 && (
+        <>
+          <div className="section-label">Próximos eventos</div>
+          {events.map(e => {
+            const d = new Date(e.createdAt);
+            return (
+              <div key={e.id} className="agenda-item">
+                <div className="agenda-date-box">
+                  <div className="agenda-date-day">{d.getDate()}</div>
+                  <div className="agenda-date-month">{months[d.getMonth()]}</div>
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>{e.title}</div>
+                  <div style={{ fontSize:12, color:'var(--muted)', marginTop:2 }}>{e.content}</div>
+                  {e.eventDate && (
+                    <div style={{ fontSize:11, color:sport?.color, fontWeight:600, marginTop:4,
+                      display:'flex', alignItems:'center', gap:4 }}>
+                      <svg width="12" height="12"><Icon.Calendar/></svg>{e.eventDate}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <div className="section-label" style={{ marginTop: events.length>0 ? 16 : 0 }}>Últimas publicaciones</div>
+      {recent.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-state-icon"><svg width="24" height="24" style={{ color:'var(--light)' }}><Icon.Calendar/></svg></div>
+          <div className="empty-state-title">Sin publicaciones</div>
+          <div className="empty-state-text">Ve a Publicar para crear el primer post del grupo</div>
+        </div>
+      ) : recent.map(p => {
+        const badgeClass = { noticia:'badge-noticia',foto:'badge-foto',evento:'badge-evento',resultado:'badge-resultado' }[p.type];
+        return (
+          <div key={p.id} style={{ background:'var(--surface)', borderRadius:'var(--r-md)',
+            border:'1px solid var(--border)', padding:'12px 14px', marginBottom:8 }}>
+            <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:5 }}>
+              <span className={`badge ${badgeClass}`}>{p.type.charAt(0).toUpperCase()+p.type.slice(1)}</span>
+              <span style={{ marginLeft:'auto', fontSize:11, color:'var(--light)' }}>{timeAgo(p.createdAt)}</span>
+            </div>
+            <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>{p.title}</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginTop:3 }}>{p.content}</div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// ── ATLETAS TAB ──────────────────────────────────────────────
+
+function AtletasTab({ athletes, sport, observations, onSelect }) {
+  const [search, setSearch] = useState('');
+  const filtered = athletes.filter(a =>
+    a.name.toLowerCase().includes(search.toLowerCase()) ||
+    a.course.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <>
+      <div style={{ marginBottom:14 }}>
+        <input className="form-input" placeholder="Buscar atleta..." value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ paddingLeft:36 }}/>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))', gap:10 }}>
+        {filtered.map(a => {
+          const obsCount = observations.filter(o => o.athleteId === a.id).length;
+          return (
+            <div key={a.id} className="athlete-card" onClick={() => onSelect(a)}>
+              <div className="avatar avatar-lg" style={{ background:`${sport?.color}20`,
+                color:sport?.color, margin:'0 auto 8px' }}>
+                {a.avatar}
+              </div>
+              <div style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>{a.name.split(' ')[0]}</div>
+              <div style={{ fontSize:11, color:'var(--muted)' }}>{a.name.split(' ').slice(1).join(' ')}</div>
+              <div style={{ fontSize:10, color:'var(--light)', marginTop:2 }}>{a.course}</div>
+              {obsCount > 0 && (
+                <div style={{ marginTop:6, fontSize:10, color:'var(--blue)', fontWeight:700 }}>
+                  {obsCount} obs.
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ── SOLICITUDES TAB ──────────────────────────────────────────
+
+function SolicitudesTab({ requests, groups, sport, onApprove, onReject }) {
+  if (requests.length === 0) {
+    return (
+      <div className="empty-state">
+        <div className="empty-state-icon"><svg width="24" height="24" style={{ color:'var(--light)' }}><Icon.Check/></svg></div>
+        <div className="empty-state-title">Sin solicitudes</div>
+        <div className="empty-state-text">No hay familias pendientes de aprobación</div>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="section-label">{requests.length} solicitud{requests.length>1?'es':''} pendiente{requests.length>1?'s':''}</div>
+      {requests.map(r => (
+        <div key={r.id} className="approval-card">
+          <div className="approval-header">
+            <div className="avatar avatar-md" style={{ background:'#dbeafe', color:'#2563eb' }}>{r.avatar}</div>
+            <div className="approval-info">
+              <div className="approval-name">{r.name}</div>
+              <div className="approval-email">{r.email}</div>
+            </div>
+          </div>
+          <div className="approval-details">
+            <strong>Atleta:</strong> {r.athleteName} · {r.athleteCourse}
+          </div>
+          <div className="approval-actions">
+            <button className="btn btn-success btn-sm" style={{ flex:1 }} onClick={() => onApprove(r.id)}>Aprobar</button>
+            <button className="btn btn-danger btn-sm"  style={{ flex:1 }} onClick={() => onReject(r.id)}>Rechazar</button>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// ── PUBLICAR TAB ─────────────────────────────────────────────
+
+function PublicarTab({ pubType, setPubType, pubTitle, setPubTitle, pubContent, setPubContent, pubDate, setPubDate, onPublish }) {
+  return (
+    <>
+      <div className="section-label">Tipo de publicación</div>
+      <div className="publish-type-grid" style={{ gridTemplateColumns:'repeat(4,1fr)' }}>
+        {[
+          { id:'noticia',   label:'Noticia',  color:'#1e40af', bg:'#dbeafe' },
+          { id:'foto',      label:'Foto',     color:'#166534', bg:'#dcfce7' },
+          { id:'evento',    label:'Evento',   color:'#92400e', bg:'#fef3c7' },
+          { id:'resultado', label:'Resultado',color:'#7e22ce', bg:'#f3e8ff' },
+        ].map(t => (
+          <button key={t.id}
+            className={`publish-type-card ${pubType===t.id?'selected':''}`}
+            style={pubType===t.id ? { borderColor:t.color, color:t.color, background:t.bg } : {}}
+            onClick={() => setPubType(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Título *</label>
+        <input className="form-input" placeholder="Ej: Entrenamiento del martes"
+          value={pubTitle} onChange={e => setPubTitle(e.target.value)}/>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Mensaje</label>
+        <textarea className="form-input form-textarea" rows={4}
+          placeholder="Escribe el contenido…"
+          value={pubContent} onChange={e => setPubContent(e.target.value)}/>
+      </div>
+
+      {pubType === 'evento' && (
+        <div className="form-group">
+          <label className="form-label">Fecha del evento</label>
+          <input className="form-input" type="datetime-local"
+            value={pubDate} onChange={e => setPubDate(e.target.value)}/>
+        </div>
+      )}
+
+      {pubType === 'foto' && (
+        <div style={{ border:'2px dashed var(--border)', borderRadius:'var(--r-lg)',
+          padding:'28px', textAlign:'center', marginBottom:14, cursor:'pointer', color:'var(--muted)' }}>
+          <svg width="28" height="28" style={{ margin:'0 auto 8px', display:'block', color:'var(--light)' }}>
+            <Icon.Image/>
+          </svg>
+          <div style={{ fontSize:13, fontWeight:600 }}>Toca para subir foto o archivo</div>
+          <div style={{ fontSize:11, color:'var(--light)', marginTop:2 }}>JPG, PNG, PDF, MP4</div>
+        </div>
+      )}
+
+      {pubType === 'resultado' && (
+        <div className="form-group">
+          <label className="form-label">Marcador (ej: 3-1)</label>
+          <input className="form-input" placeholder="3-1"/>
+        </div>
+      )}
+
+      <button className="btn btn-primary btn-full" style={{ height:48, fontSize:15 }}
+        onClick={onPublish} disabled={!pubTitle.trim()}>
+        <svg width="15" height="15"><Icon.Megaphone/></svg>
+        Publicar en el grupo
+      </button>
+
+      <div style={{ textAlign:'center', fontSize:12, color:'var(--muted)', marginTop:10 }}>
+        Las familias del grupo recibirán una notificación
+      </div>
+    </>
+  );
+}
+
+// ── LISTA TAB ────────────────────────────────────────────────
+
+function ListaTab({ athletes, sport, attRecords, setAttRecords, counts, today,
+  expandedAthlete, setExpandedAthlete, obsText, setObsText, obsType, setObsType,
+  savedObs, saveObs, markAll, saveAtt, online }) {
+
+  return (
+    <>
+      <div style={{ fontSize:14, fontWeight:700, color:'var(--text)', marginBottom:12 }}>
+        {today.charAt(0).toUpperCase() + today.slice(1)}
+      </div>
+
+      {/* Summary pills */}
+      <div className="att-summary" style={{ marginBottom:12 }}>
+        {[['P',counts.P,'var(--presente-bg)','var(--presente)'],
+          ['A',counts.A,'var(--ausente-bg)','var(--ausente)'],
+          ['T',counts.T,'var(--tarde-bg)','var(--tarde)'],
+          ['J',counts.J,'var(--justificado-bg)','var(--justificado)']].map(([l,n,bg,c]) => (
+          <div key={l} className="att-pill" style={{ background:bg, color:c }}>{l}  {n}</div>
+        ))}
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+        <button className="btn btn-success btn-sm" style={{ flex:1 }} onClick={() => markAll('P')}>
+          Todos presentes
+        </button>
+        <button className="btn btn-danger btn-sm" style={{ flex:1 }} onClick={() => markAll('A')}>
+          Todos ausentes
+        </button>
+      </div>
+
+      <div style={{ fontSize:11, color:'var(--light)', textAlign:'center', marginBottom:10, fontWeight:600 }}>
+        Toca el estado para cambiar · ✏ para añadir observación
+      </div>
+
+      {/* Athletes list */}
+      <div style={{ background:'var(--surface)', borderRadius:'var(--r-lg)', border:'1px solid var(--border)',
+        overflow:'hidden', marginBottom:14 }}>
+        {athletes.map((a, i) => {
+          const isExpanded = expandedAthlete === a.id;
+          const hasObs = savedObs.filter(o => o.athleteId === a.id).length > 0;
+          return (
+            <div key={a.id} style={{ borderBottom: i<athletes.length-1 ? '1px solid var(--bg)':undefined }}>
+              {/* Athlete row */}
+              <div className="athlete-row" style={{ background: isExpanded ? 'var(--bg)' : undefined }}>
+                <div className="avatar avatar-sm"
+                  style={{ background:`${sport?.color}20`, color:sport?.color }}>
+                  {a.avatar}
+                </div>
+                <div className="athlete-info">
+                  <div className="athlete-name">
+                    {a.name}
+                    {hasObs && <span style={{ fontSize:9, color:'var(--blue)', marginLeft:5,
+                      fontWeight:800, background:'#dbeafe', padding:'1px 4px', borderRadius:4 }}>
+                      obs
+                    </span>}
+                  </div>
+                  <div className="athlete-course">{a.course}</div>
+                </div>
+                {/* Obs toggle button */}
+                <button onClick={() => setExpandedAthlete(isExpanded ? null : a.id)}
+                  style={{ background: isExpanded ? '#dbeafe' : 'var(--bg)',
+                    border:'none', borderRadius:'var(--r-sm)', padding:'6px 8px',
+                    color: isExpanded ? 'var(--blue)' : 'var(--light)', cursor:'pointer', flexShrink:0 }}
+                  title="Observación">
+                  <svg width="15" height="15"><Icon.Edit/></svg>
+                </button>
+                <AttBtn state={attRecords[a.id] || 'P'}
+                  onChange={(s) => setAttRecords(p => ({ ...p, [a.id]: s }))}/>
+              </div>
+
+              {/* Expandable observation */}
+              {isExpanded && (
+                <div className="obs-expand">
+                  <div style={{ fontSize:12, fontWeight:600, color:'var(--text)', marginBottom:8 }}>
+                    Observación para {a.name.split(' ')[0]}
+                  </div>
+                  <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+                    {[['general','General','#64748b'],['tecnica','Técnica','#2563eb'],
+                      ['comportamiento','Comportam.','#9333ea']].map(([id,label,color]) => (
+                      <button key={id}
+                        onClick={() => setObsType(p => ({ ...p, [a.id]: id }))}
+                        style={{ flex:1, padding:'6px 4px', borderRadius:'var(--r-sm)', fontSize:11,
+                          fontWeight:700, border:`1.5px solid ${(obsType[a.id]||'general')===id ? color : 'var(--border)'}`,
+                          background:(obsType[a.id]||'general')===id ? color+'15' : 'var(--surface)',
+                          color:(obsType[a.id]||'general')===id ? color : 'var(--muted)', cursor:'pointer' }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea className="form-input form-textarea" rows={2}
+                    placeholder="Ej: Buen trabajo en control de balón..."
+                    value={obsText[a.id] || ''}
+                    onChange={e => setObsText(p => ({ ...p, [a.id]: e.target.value }))}/>
+                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                    <button className="btn btn-ghost btn-sm" style={{ flex:1 }}
+                      onClick={() => setExpandedAthlete(null)}>Cancelar</button>
+                    <button className="btn btn-primary btn-sm" style={{ flex:1 }}
+                      onClick={() => saveObs(a.id)}
+                      disabled={!obsText[a.id]?.trim()}>
+                      Guardar obs.
                     </button>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
 
-            {/* Date + summary */}
-            <div style={{ fontSize:14, fontWeight:700, color:'var(--text)', marginBottom:12 }}>{todayCap}</div>
-            {attSaved && (
-              <div className="toast-success">
-                <svg width="16" height="16"><Icon.Check/></svg>
-                Lista guardada correctamente
-              </div>
-            )}
-
-            <div className="att-summary">
-              {[['P',counts.P,'var(--presente-bg)','var(--presente)'],
-                ['A',counts.A,'var(--ausente-bg)','var(--ausente)'],
-                ['T',counts.T,'var(--tarde-bg)','var(--tarde)'],
-                ['J',counts.J,'var(--justificado-bg)','var(--justificado)']].map(([l,n,bg,c]) => (
-                <div key={l} className="att-pill" style={{ background:bg, color:c }}>{l}  {n}</div>
-              ))}
+                  {/* Previous obs for this athlete */}
+                  {savedObs.filter(o => o.athleteId === a.id).length > 0 && (
+                    <div style={{ marginTop:10, borderTop:'1px solid var(--border)', paddingTop:10 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', marginBottom:6 }}>
+                        Observaciones anteriores
+                      </div>
+                      {savedObs.filter(o => o.athleteId === a.id && !o.isPrivate).map(o => (
+                        <div key={o.id} style={{ fontSize:12, color:'var(--muted)', marginBottom:4,
+                          paddingLeft:8, borderLeft:'2px solid var(--border)' }}>
+                          {o.content}
+                          <span style={{ color:'var(--light)', marginLeft:6 }}>· {timeAgo(o.createdAt)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+          );
+        })}
+      </div>
 
-            {/* Quick buttons */}
-            <div style={{ display:'flex', gap:8, marginBottom:14 }}>
-              <button className="btn btn-success btn-sm" style={{ flex:1 }} onClick={() => markAll('P')}>Todos presentes</button>
-              <button className="btn btn-danger btn-sm"  style={{ flex:1 }} onClick={() => markAll('A')}>Todos ausentes</button>
-            </div>
+      <button className="btn btn-primary btn-full" style={{ height:48, fontSize:15 }}
+        onClick={saveAtt}>
+        <svg width="15" height="15"><Icon.Check/></svg>
+        Guardar lista{!online ? ' (offline)' : ''}
+      </button>
+    </>
+  );
+}
 
-            {/* Swipe hint */}
-            <div style={{ fontSize:11, color:'var(--light)', textAlign:'center', marginBottom:10, fontWeight:600 }}>
-              Desliza → Presente  ·  ← Ausente  ·  Toca para ciclar
-            </div>
+// ── ATHLETE DETAIL SHEET ─────────────────────────────────────
 
-            {/* Athletes */}
-            <div className="card" style={{ padding:0 }}>
-              {groupAthletes.map(a => (
-                <SwipeableAthleteRow key={a.id} athlete={a}
-                  state={attRecords[a.id] || 'P'}
-                  sportColor={currentSport?.color}
-                  onChange={(s) => setAttRecords(prev => ({ ...prev, [a.id]: s }))}
-                  onObs={() => { setObsAthleteId(a.id); setView('observations'); }}
-                />
-              ))}
-            </div>
+function AthleteSheet({ athlete, sport, observations, attRecords, onClose }) {
+  const healthKey = athlete.id;
+  import('../../lib/mockData').then(() => {});
 
-            <button className="btn btn-primary btn-full" style={{ marginTop:12, height:48, fontSize:15 }}
-              onClick={saveAttendance}>
-              <svg width="16" height="16"><Icon.Check/></svg>
-              Guardar asistencia{!online ? ' (offline)' : ''}
-            </button>
+  const attStatus = attRecords[athlete.id] || 'P';
+  const statusLabel = { P:'Presente hoy', A:'Ausente hoy', T:'Tarde hoy', J:'Justificado' }[attStatus];
+  const statusColor = { P:'var(--presente)', A:'var(--ausente)', T:'var(--tarde)', J:'var(--justificado)' }[attStatus];
 
-            {/* History */}
-            <div className="section-label" style={{ marginTop:16 }}>Historial reciente</div>
-            {[
-              { date:'Jue 22 may', P:13, A:2 },
-              { date:'Mar 20 may', P:14, A:1 },
-              { date:'Jue 15 may', P:11, A:3, T:1 },
-            ].map((h,i) => (
-              <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 14px',
-                background:'var(--surface)', borderRadius:'var(--r-md)', marginBottom:6, border:'1px solid var(--border)' }}>
-                <span style={{ fontSize:13, color:'var(--text)', flex:1, fontWeight:500 }}>{h.date}</span>
-                <span style={{ fontSize:12, fontWeight:700, color:'var(--presente)' }}>P·{h.P}</span>
-                {h.A > 0 && <span style={{ fontSize:12, fontWeight:700, color:'var(--ausente)' }}>A·{h.A}</span>}
-                {h.T  && <span style={{ fontSize:12, fontWeight:700, color:'var(--tarde)' }}>T·{h.T}</span>}
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+        <div className="modal-handle"/>
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+          <div className="avatar avatar-xl"
+            style={{ background:`${sport?.color}20`, color:sport?.color }}>
+            {athlete.avatar}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:18, fontWeight:800, color:'var(--text)' }}>{athlete.name}</div>
+            <div style={{ fontSize:13, color:'var(--muted)' }}>{athlete.course}</div>
+            <div style={{ fontSize:12, fontWeight:700, color:statusColor, marginTop:2 }}>{statusLabel}</div>
+          </div>
+        </div>
+
+        {observations.length > 0 && (
+          <>
+            <div className="section-label">Observaciones</div>
+            {observations.map(o => (
+              <div key={o.id} className="obs-card">
+                <div className="obs-type" style={{ color:'var(--blue)' }}>
+                  {{ tecnica:'Técnica', comportamiento:'Comportamiento', general:'General' }[o.type]}
+                </div>
+                <div className="obs-text">{o.content}</div>
+                <div className="obs-meta">{timeAgo(o.createdAt)}</div>
               </div>
             ))}
           </>
         )}
 
-        {/* ── PUBLISH ── */}
-        {view === 'publish' && (
-          <>
-            {pubSent && (
-              <div className="toast-success">
-                <svg width="16" height="16"><Icon.Check/></svg>
-                Publicación enviada a todas las familias del grupo
-              </div>
-            )}
-
-            <div className="section-label">Tipo de publicación</div>
-            <div className="publish-type-grid">
-              {[
-                { id:'noticia',   label:'Noticia',  color:'#1e40af', bg:'#dbeafe' },
-                { id:'foto',      label:'Foto',     color:'#166534', bg:'#dcfce7' },
-                { id:'evento',    label:'Evento',   color:'#92400e', bg:'#fef3c7' },
-                { id:'resultado', label:'Resultado',color:'#7e22ce', bg:'#f3e8ff' },
-              ].map(t => (
-                <button key={t.id} className={`publish-type-card ${pubType===t.id?'selected':''}`}
-                  style={pubType===t.id ? { borderColor:t.color, color:t.color, background:t.bg } : {}}
-                  onClick={() => setPubType(t.id)}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Group selector */}
-            <div className="form-group">
-              <label className="form-label">Grupo</label>
-              <select className="form-input form-select" value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}>
-                {myGroups.map(g => {
-                  const s = getSport(g.sportId);
-                  return <option key={g.id} value={g.id}>{s?.name} · {g.name}</option>;
-                })}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Título *</label>
-              <input className="form-input" placeholder="Ej: Torneo el próximo sábado"
-                value={pubTitle} onChange={e => setPubTitle(e.target.value)}/>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Mensaje *</label>
-              <textarea className="form-input form-textarea" rows={4}
-                placeholder="Detalles de la publicación…"
-                value={pubContent} onChange={e => setPubContent(e.target.value)}/>
-            </div>
-
-            {pubType === 'evento' && (
-              <div className="form-group">
-                <label className="form-label">Fecha y hora del evento</label>
-                <input className="form-input" type="datetime-local"
-                  value={pubEventDate} onChange={e => setPubEventDate(e.target.value)}/>
-              </div>
-            )}
-
-            {pubType === 'foto' && (
-              <div style={{ border:'2px dashed var(--border)', borderRadius:'var(--r-lg)', padding:'24px',
-                textAlign:'center', marginBottom:14, cursor:'pointer', color:'var(--muted)' }}>
-                <svg width="28" height="28" style={{ margin:'0 auto 8px', color:'var(--light)' }}><Icon.Image/></svg>
-                <div style={{ fontSize:13, fontWeight:600 }}>Toca para subir foto</div>
-                <div style={{ fontSize:11, color:'var(--light)', marginTop:2 }}>JPG, PNG · máx. 10 MB</div>
-              </div>
-            )}
-
-            {pubType === 'resultado' && (
-              <div className="form-group">
-                <label className="form-label">Marcador (ej: 3-1)</label>
-                <input className="form-input" placeholder="3-1"/>
-              </div>
-            )}
-
-            {/* Preview */}
-            {pubTitle && pubContent && (
-              <div style={{ borderRadius:'var(--r-lg)', border:'1px solid var(--border)',
-                overflow:'hidden', marginBottom:16, background:'var(--surface)' }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'var(--muted)', padding:'8px 14px 4px',
-                  borderBottom:'1px solid var(--border)', background:'var(--bg)' }}>
-                  VISTA PREVIA
-                </div>
-                <div style={{ padding:'12px 14px' }}>
-                  <span className={`badge badge-${pubType}`} style={{ marginBottom:6, display:'inline-block' }}>
-                    {pubType.charAt(0).toUpperCase()+pubType.slice(1)}
-                  </span>
-                  <div style={{ fontSize:15, fontWeight:800, color:'var(--text)', marginBottom:4 }}>{pubTitle}</div>
-                  <div style={{ fontSize:13, color:'var(--muted)' }}>{pubContent}</div>
-                </div>
-              </div>
-            )}
-
-            <button className="btn btn-primary btn-full" style={{ height:48, fontSize:15 }}
-              onClick={publishPost} disabled={!pubTitle.trim() || !pubContent.trim()}>
-              <svg width="15" height="15"><Icon.Megaphone/></svg>
-              Publicar en el grupo
-            </button>
-          </>
-        )}
-
-        {/* ── OBSERVATIONS ── */}
-        {view === 'observations' && (
-          <>
-            {obsSent && (
-              <div className="toast-success">
-                <svg width="16" height="16"><Icon.Check/></svg>
-                Observación guardada
-              </div>
-            )}
-
-            <div className="section-label">Nueva observación</div>
-            <div className="card">
-              {/* Athlete selector */}
-              <div className="form-group">
-                <label className="form-label">Atleta</label>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, maxHeight:160, overflowY:'auto' }}>
-                  {groupAthletes.map(a => (
-                    <div key={a.id} onClick={() => setObsAthleteId(a.id)}
-                      style={{ padding:'8px 10px', borderRadius:'var(--r-md)', cursor:'pointer', display:'flex', gap:6,
-                        alignItems:'center', border:`1.5px solid ${obsAthleteId===a.id ? 'var(--blue)' : 'var(--border)'}`,
-                        background: obsAthleteId===a.id ? '#dbeafe' : 'var(--surface)' }}>
-                      <div className="avatar avatar-sm" style={{ background:`${currentSport?.color}20`, color:currentSport?.color }}>{a.avatar}</div>
-                      <span style={{ fontSize:12, fontWeight:600, color: obsAthleteId===a.id ? 'var(--blue)' : 'var(--text)' }}>
-                        {a.name.split(' ')[0]}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Tipo</label>
-                <div style={{ display:'flex', gap:6 }}>
-                  {[['tecnica','Técnica','#2563eb'],['comportamiento','Comportam.','#9333ea'],['general','General','#64748b']].map(([id,label,color]) => (
-                    <button key={id} onClick={() => setObsType(id)}
-                      style={{ flex:1, padding:'7px 4px', borderRadius:'var(--r-sm)', fontSize:12, fontWeight:700,
-                        border:`1.5px solid ${obsType===id ? color : 'var(--border)'}`,
-                        background: obsType===id ? color+'15' : 'var(--surface)',
-                        color: obsType===id ? color : 'var(--muted)', cursor:'pointer' }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Observación</label>
-                <textarea className="form-input form-textarea" rows={3}
-                  placeholder="Describe la observación…"
-                  value={obsText} onChange={e => setObsText(e.target.value)}/>
-              </div>
-
-              <Toggle on={obsPrivate} onChange={setObsPrivate}
-                label="Privada — solo visible para entrenadores"/>
-
-              <button className="btn btn-primary btn-full" style={{ marginTop:8 }}
-                onClick={addObservation} disabled={!obsText.trim() || !obsAthleteId}>
-                Guardar observación
-              </button>
-            </div>
-
-            {/* Observations list */}
-            <div className="section-label" style={{ marginTop:8 }}>Historial</div>
-            {observations.length === 0 ? (
-              <EmptyState icon={<Icon.File/>} title="Sin observaciones" text="Añade la primera observación de un atleta"/>
-            ) : observations.map(obs => {
-              const athlete = ATHLETES.find(a => a.id === obs.athleteId);
-              const typeColor = { tecnica:'#2563eb', comportamiento:'#9333ea', general:'#64748b' }[obs.type] || '#64748b';
-              const typeLabel = { tecnica:'Técnica', comportamiento:'Comportam.', general:'General' }[obs.type];
-              return (
-                <div key={obs.id} className="obs-card">
-                  <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-                    <div className="avatar avatar-sm" style={{ background:`${currentSport?.color}20`, color:currentSport?.color }}>
-                      {athlete?.avatar}
-                    </div>
-                    <span style={{ fontSize:13, fontWeight:700, color:'var(--text)', flex:1 }}>{athlete?.name}</span>
-                    {obs.isPrivate && (
-                      <span style={{ display:'flex', alignItems:'center', gap:3, fontSize:10, color:'var(--muted)', fontWeight:700 }}>
-                        <svg width="12" height="12"><Icon.Lock/></svg> Privada
-                      </span>
-                    )}
-                  </div>
-                  <div className="obs-type" style={{ color:typeColor }}>{typeLabel}</div>
-                  <div className="obs-text">{obs.content}</div>
-                  <div className="obs-meta">{timeAgo(obs.createdAt)}</div>
-                </div>
-              );
-            })}
-          </>
-        )}
-
-        {/* ── PROFILE ── */}
-        {view === 'profile' && (
-          <>
-            <div className="profile-header" style={{ margin:'-16px -16px 16px', borderRadius:0 }}>
-              <div className="avatar avatar-xl" style={{ background:'rgba(255,255,255,.2)', color:'white', fontSize:20 }}>
-                {user?.avatar || 'JM'}
-              </div>
-              <div className="profile-name">{user?.name}</div>
-              <div className="profile-role">Entrenador · Escolapias Calasanz</div>
-            </div>
-
-            <div className="section-label">Mis grupos</div>
-            {myGroups.map(g => {
-              const s = getSport(g.sportId);
-              return (
-                <div key={g.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
-                  background:'var(--surface)', borderRadius:'var(--r-md)', marginBottom:6, border:'1px solid var(--border)' }}>
-                  <span className="sport-dot-lg" style={{ background:s?.color }}/>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>{s?.name} · {g.name}</div>
-                    <div style={{ fontSize:11, color:'var(--light)' }}>{g.count} atletas · cap. {g.maxCapacity}</div>
-                  </div>
-                  <span style={{ fontSize:11, color:'var(--muted)', background:'var(--bg)', padding:'3px 8px',
-                    borderRadius:99, fontWeight:600 }}>Activo</span>
-                </div>
-              );
-            })}
-
-            <div className="section-label" style={{ marginTop:12 }}>Estadísticas del mes</div>
-            <div className="grid-2" style={{ marginBottom:16 }}>
-              <div className="stat-big"><div className="stat-big-num">12</div><div className="stat-big-label">Posts publicados</div></div>
-              <div className="stat-big"><div className="stat-big-num">8</div><div className="stat-big-label">Listas pasadas</div></div>
-              <div className="stat-big"><div className="stat-big-num">87%</div><div className="stat-big-label">Asistencia media</div></div>
-              <div className="stat-big"><div className="stat-big-num">5</div><div className="stat-big-label">Observaciones</div></div>
-            </div>
-
-            <div style={{ borderTop:'1px solid var(--border)', paddingTop:12 }}>
-              <div style={{ fontSize:13, color:'var(--muted)', marginBottom:8 }}>
-                <strong style={{ color:'var(--text)' }}>Cuenta:</strong> {user?.email}
-              </div>
-              <button className="logout-btn" onClick={logout}>
-                <svg width="16" height="16"><Icon.Logout/></svg>
-                Cerrar sesión
-              </button>
-            </div>
-          </>
-        )}
-      </main>
-
-      {/* Bottom nav */}
-      <nav className="bottom-nav">
-        {VIEWS.map(v => (
-          <button key={v.id} className={`nav-item ${view===v.id?'active':''}`}
-            onClick={() => setView(v.id)} aria-label={v.label}>
-            {v.id==='groups' && requests.length>0 && <span className="nav-badge"/>}
-            <svg>{v.icon}</svg>
-            <span>{v.label}</span>
-          </button>
-        ))}
-      </nav>
-    </div>
-  );
-}
-
-// ── Swipeable Athlete Row ─────────────────────────────────────
-
-function SwipeableAthleteRow({ athlete, state, sportColor, onChange, onObs }) {
-  const [delta, setDelta] = useState(0);
-  const startX = useRef(null);
-
-  const onTouchStart = (e) => { startX.current = e.touches[0].clientX; };
-  const onTouchMove  = (e) => {
-    if (startX.current === null) return;
-    const d = e.touches[0].clientX - startX.current;
-    setDelta(Math.max(-80, Math.min(80, d)));
-  };
-  const onTouchEnd = () => {
-    if (delta > 50)  onChange('P');
-    if (delta < -50) onChange('A');
-    startX.current = null;
-    setDelta(0);
-  };
-
-  const bgHint = delta > 20 ? 'var(--presente-bg)' : delta < -20 ? 'var(--ausente-bg)' : 'transparent';
-  const textHint = delta > 20 ? 'Presente' : delta < -20 ? 'Ausente' : '';
-
-  return (
-    <div className="athlete-row" style={{ position:'relative', background:bgHint, transition: delta===0 ? 'background .2s' : 'none' }}
-      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-      {textHint && (
-        <div style={{ position:'absolute', [delta>0?'left':'right']:8, fontSize:11, fontWeight:800,
-          color: delta>0 ? 'var(--presente)' : 'var(--ausente)', pointerEvents:'none' }}>
-          {textHint}
-        </div>
-      )}
-      <div style={{ transform:`translateX(${delta}px)`, display:'contents' }}>
-        <div className="avatar avatar-sm" style={{ background:`${sportColor}20`, color:sportColor, flexShrink:0 }}>
-          {athlete.avatar}
-        </div>
-        <div className="athlete-info">
-          <div className="athlete-name">{athlete.name}</div>
-          <div className="athlete-course">{athlete.course}</div>
-        </div>
-        <button onClick={onObs} style={{ background:'none', border:'none', padding:'4px 6px',
-          color:'var(--light)', cursor:'pointer', flexShrink:0 }} aria-label="Añadir observación">
-          <svg width="16" height="16"><Icon.Edit/></svg>
+        <button className="btn btn-ghost btn-full" style={{ marginTop:12 }} onClick={onClose}>
+          Cerrar
         </button>
-        <AttBtn state={state} onChange={onChange}/>
       </div>
     </div>
   );
 }
+
+// Micro-import for Icon.Megaphone fix
+Icon.Megaphone = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>);
