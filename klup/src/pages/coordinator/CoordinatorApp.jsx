@@ -9,6 +9,7 @@ import { SPORTS, GROUPS, COACHES, ATHLETES, POSTS, PENDING_REQUESTS,
 import FinanzasTab    from './FinanzasTab';
 import CenterCalendar from '../../components/CenterCalendar';
 import Messaging      from '../../components/Messaging';
+import DocumentGenerator from './DocumentGenerator';
 
 Icon.Megaphone = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>);
 Icon.Euro      = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 10h12M4 14h12M19.5 8a7.5 7.5 0 1 0 0 8"/></svg>);
@@ -156,11 +157,11 @@ const NAV_GROUPS = [
     { id:'calendar',   label:'Calendario',    icon:<Icon.Calendar/> },
   ]},
   { label:'Centro', items:[
-    { id:'finanzas',   label:'Finanzas',      icon:<Icon.Euro/> },
-    { id:'documents',  label:'Documentos',    icon:<Icon.Folder/> },
-    { id:'incidents',  label:'Incidencias',   icon:<Icon.Warning/> },
-    
-    { id:'settings',   label:'Ajustes',       icon:<Icon.Settings/> },
+    { id:'finanzas',   label:'Finanzas',       icon:<Icon.Euro/> },
+    { id:'documents',  label:'Documentos',     icon:<Icon.Folder/> },
+    { id:'docgen',     label:'Generar docs ✨', icon:<Icon.Star/> },
+    { id:'incidents',  label:'Incidencias',    icon:<Icon.Warning/> },
+    { id:'settings',   label:'Ajustes',        icon:<Icon.Settings/> },
   ]},
 ];
 
@@ -701,6 +702,9 @@ export default function CoordinatorApp() {
 
           {/* ── FINANZAS ── */}
           {tab === 'finanzas' && <FinanzasTab/>}
+
+          {/* ── GENERAR DOCUMENTOS ── */}
+          {tab === 'docgen' && <DocumentGenerator/>}
 
           {/* ── DOCUMENTS ── */}
           {tab === 'documents' && (
