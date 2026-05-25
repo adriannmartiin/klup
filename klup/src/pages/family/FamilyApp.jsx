@@ -7,6 +7,7 @@ import { Icon, Avatar, OfflineBanner, EmptyState, RadarChart, ProgressRing } fro
 import { SPORTS, GROUPS, ATHLETES, POSTS, OBSERVATIONS, NOTIFICATIONS, HEALTH_RECORDS,
          SKILL_ASSESSMENTS, COACHES, getSport, timeAgo } from '../../lib/mockData';
 import Messaging from '../../components/Messaging';
+import { getHistory, calcAvg, calcCatAvg, scoreColor } from '../../lib/evaluationStore';
 
 const MY_ATHLETES = [
   { id:'a1',  name:'Carlos García', groupId:'g1', course:'4º Primaria', avatar:'CG' },
@@ -393,6 +394,9 @@ export default function FamilyApp() {
                   </div>
                 );
               })}
+
+              {/* Evaluaciones del entrenador */}
+              <EvaluationHistory athleteId={athlete.id} sport={sport}/>
             </>
           )}
 
@@ -588,5 +592,113 @@ function JoinGroupModal({ onClose }) {
         )}
       </div>
     </div>
+  );
+}
+
+// ── Evaluation History for Family ────────────────────────────
+
+function EvaluationHistory({ athleteId, sport }) {
+  const [expanded, setExpanded] = useState(null);
+  const history = getHistory(athleteId);
+
+  if (history.length === 0) return null;
+
+  return (
+    <>
+      <div className="section-label" style={{ marginTop:20 }}>
+        Evaluaciones del entrenador
+        <span style={{ marginLeft:8, fontSize:10, background:'var(--presente-bg)',
+          color:'var(--presente)', fontWeight:700, padding:'2px 6px', borderRadius:99 }}>
+          {history.length} guardada{history.length!==1?'s':''}
+        </span>
+      </div>
+
+      {history.map((eval_, i) => {
+        const avg = calcAvg(eval_.scores, eval_.template);
+        const isExp = expanded === eval_.id;
+        return (
+          <div key={eval_.id} style={{ background:'var(--surface)', borderRadius:'var(--r-md)',
+            border:`1px solid ${isExp ? sport?.color+'60' : 'var(--border)'}`, marginBottom:8, overflow:'hidden' }}>
+
+            {/* Header */}
+            <div onClick={() => setExpanded(isExp ? null : eval_.id)}
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', cursor:'pointer' }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:14, fontWeight:700, color:'var(--text)' }}>{eval_.label}</div>
+                <div style={{ fontSize:11, color:'var(--muted)', marginTop:1 }}>
+                  {new Date(eval_.date).toLocaleDateString('es-ES', {
+                    weekday:'long', day:'numeric', month:'long', year:'numeric'
+                  })} · {eval_.coachName}
+                </div>
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontSize:18, fontWeight:900, color:scoreColor(avg) }}>{avg}/10</div>
+                <div style={{ fontSize:10, color:'var(--muted)' }}>media</div>
+              </div>
+              <svg width="14" height="14" style={{ color:'var(--muted)',
+                transform:isExp?'rotate(180deg)':'none', transition:'transform .2s' }}>
+                {/* ChevronDown inline */}
+                <polyline points="2 4 7 9 12 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </div>
+
+            {/* Detail */}
+            {isExp && (
+              <div style={{ borderTop:'1px solid var(--border)', padding:'12px 14px' }}>
+                {eval_.template.map(cat => {
+                  const catAvg_ = calcCatAvg(eval_.scores, cat);
+                  return (
+                    <div key={cat.id} style={{ marginBottom:12 }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                        <div style={{ width:8, height:8, borderRadius:'50%', background:cat.color, flexShrink:0 }}/>
+                        <span style={{ fontSize:13, fontWeight:700, color:cat.color, flex:1 }}>{cat.name}</span>
+                        {catAvg_ !== null && (
+                          <span style={{ fontSize:13, fontWeight:800, color:scoreColor(catAvg_) }}>
+                            {catAvg_}/10
+                          </span>
+                        )}
+                      </div>
+                      {cat.criteria.map(cr => {
+                        const val = eval_.scores[cr.id] ?? null;
+                        if (val === null) return null;
+                        return (
+                          <div key={cr.id} style={{ display:'flex', alignItems:'center', gap:8,
+                            padding:'5px 0', marginLeft:16 }}>
+                            <span style={{ flex:1, fontSize:12, color:'var(--muted)' }}>{cr.name}</span>
+                            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                              <div style={{ width:50, height:4, background:'var(--border)', borderRadius:99, overflow:'hidden' }}>
+                                <div style={{ height:'100%', width:`${(val/10)*100}%`,
+                                  background:scoreColor(val), borderRadius:99 }}/>
+                              </div>
+                              <span style={{ fontSize:13, fontWeight:800, color:scoreColor(val), minWidth:20 }}>{val}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Progress vs previous */}
+                {i < history.length - 1 && (() => {
+                  const prevAvg = calcAvg(history[i+1].scores, history[i+1].template);
+                  const diff = Math.round((avg - prevAvg) * 10) / 10;
+                  return (
+                    <div style={{ marginTop:10, padding:'8px 12px', background:'var(--bg)',
+                      borderRadius:'var(--r-sm)', fontSize:12, color:'var(--muted)',
+                      display:'flex', alignItems:'center', gap:6 }}>
+                      <span>Respecto a la evaluación anterior:</span>
+                      <span style={{ fontWeight:800, color: diff>0?'var(--presente)':diff<0?'var(--ausente)':'var(--muted)' }}>
+                        {diff>0?'+':''}{diff} puntos
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }

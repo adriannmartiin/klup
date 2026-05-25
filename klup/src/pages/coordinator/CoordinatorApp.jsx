@@ -17,6 +17,132 @@ Icon.Season    = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 Icon.Folder    = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>);
 Icon.Warning   = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);
 
+// ── Resources Section ─────────────────────────────────────────
+
+const INITIAL_RESOURCES = [
+  { id:'rec1', sportId:'all', name:'Protocolo de calentamiento general.pdf', size:'1.2 MB', uploadedAt:new Date(Date.now()-5*86400000) },
+  { id:'rec2', sportId:'s1',  name:'Técnica individual — Fútbol.pdf',        size:'3.4 MB', uploadedAt:new Date(Date.now()-10*86400000) },
+  { id:'rec3', sportId:'s1',  name:'Ejercicios de pase corto.pdf',           size:'2.1 MB', uploadedAt:new Date(Date.now()-15*86400000) },
+  { id:'rec4', sportId:'s2',  name:'Fundamentos del voley — Principiantes.pdf', size:'1.8 MB', uploadedAt:new Date(Date.now()-8*86400000) },
+  { id:'rec5', sportId:'s3',  name:'Rutinas de rítmica benjamín.pdf',        size:'4.2 MB', uploadedAt:new Date(Date.now()-12*86400000) },
+  { id:'rec6', sportId:'s5',  name:'Kata básicos karate.pdf',                size:'2.7 MB', uploadedAt:new Date(Date.now()-20*86400000) },
+  { id:'rec7', sportId:'s4',  name:'Circuitos FitKids — Nivel 1.pdf',       size:'1.5 MB', uploadedAt:new Date(Date.now()-7*86400000) },
+];
+
+function ResourcesSection({ sports, docSearch }) {
+  const [resources, setResources] = useState(INITIAL_RESOURCES);
+  const [expandedSport, setExpandedSport] = useState('all');
+  const [uploadingSport, setUploadingSport] = useState(null);
+  const [newResName, setNewResName] = useState('');
+
+  const addResource = (sportId) => {
+    if (!newResName.trim()) return;
+    setResources(prev => [...prev, {
+      id: 'rec'+Date.now(), sportId,
+      name: newResName.trim() + (newResName.includes('.') ? '' : '.pdf'),
+      size: '—', uploadedAt: new Date()
+    }]);
+    setNewResName(''); setUploadingSport(null);
+  };
+
+  const sportBuckets = [
+    { id:'all', name:'Todos los entrenadores', color:'#64748b', bg:'#f1f5f9' },
+    ...sports.map(s => ({ id:s.id, name:s.name, color:s.color, bg:s.bg })),
+  ];
+
+  return (
+    <>
+      <div style={{ display:'flex', alignItems:'center', gap:10, margin:'20px 0 12px',
+        padding:'12px 14px', background:'#f0f7ff', borderRadius:'var(--r-md)',
+        border:'1px solid #bfdbfe' }}>
+        <svg width="18" height="18" style={{ color:'#2563eb', flexShrink:0 }}><Icon.Folder/></svg>
+        <div>
+          <div style={{ fontSize:14, fontWeight:700, color:'#1e40af' }}>Recursos para entrenadores</div>
+          <div style={{ fontSize:12, color:'#3b82f6' }}>
+            PDFs y archivos que los entrenadores pueden descargar desde su panel
+          </div>
+        </div>
+      </div>
+
+      {sportBuckets.map(bucket => {
+        const bucketRes = resources.filter(r =>
+          r.sportId === bucket.id &&
+          (!docSearch || r.name.toLowerCase().includes(docSearch.toLowerCase()))
+        );
+        const isExp = expandedSport === bucket.id;
+
+        return (
+          <div key={bucket.id} style={{ background:'var(--surface)', borderRadius:'var(--r-md)',
+            border:`1.5px solid ${bucket.color}25`, marginBottom:8, overflow:'hidden' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', cursor:'pointer' }}
+              onClick={() => setExpandedSport(isExp ? null : bucket.id)}>
+              <div style={{ width:10, height:10, borderRadius:'50%', background:bucket.color, flexShrink:0 }}/>
+              <span style={{ fontSize:14, fontWeight:700, color:bucket.color, flex:1 }}>{bucket.name}</span>
+              <span style={{ fontSize:12, color:'var(--muted)' }}>{bucketRes.length} archivo{bucketRes.length!==1?'s':''}</span>
+              <svg width="14" height="14" style={{ color:'var(--muted)',
+                transform:isExp?'rotate(180deg)':'none', transition:'transform .2s' }}>
+                <Icon.ChevronDown/>
+              </svg>
+            </div>
+
+            {isExp && (
+              <div style={{ borderTop:'1px solid var(--border)' }}>
+                {bucketRes.length === 0 ? (
+                  <div style={{ padding:'14px', fontSize:13, color:'var(--light)', textAlign:'center' }}>
+                    Sin recursos en esta categoría
+                  </div>
+                ) : bucketRes.map(res => (
+                  <div key={res.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
+                    borderBottom:'1px solid var(--bg)' }}>
+                    <div style={{ width:32, height:32, background:`${bucket.color}15`, borderRadius:'var(--r-sm)',
+                      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <svg width="16" height="16" style={{ color:bucket.color }}><Icon.File/></svg>
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'var(--text)' }} className="truncate">
+                        {res.name}
+                      </div>
+                      <div style={{ fontSize:11, color:'var(--muted)' }}>
+                        {res.size} · {timeAgo(res.uploadedAt)}
+                      </div>
+                    </div>
+                    <button className="btn btn-ghost btn-sm">↓</button>
+                    <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--light)', padding:4 }}
+                      onClick={() => setResources(r => r.filter(x => x.id !== res.id))}>
+                      <svg width="13" height="13"><Icon.X/></svg>
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add resource */}
+                {uploadingSport === bucket.id ? (
+                  <div style={{ display:'flex', gap:8, padding:'10px 14px', borderTop:'1px solid var(--bg)' }}>
+                    <input className="form-input" style={{ flex:1, height:34, fontSize:12 }}
+                      placeholder="Nombre del archivo (ej: Calentamiento fútbol.pdf)"
+                      value={newResName} onChange={e => setNewResName(e.target.value)}
+                      onKeyDown={e => e.key==='Enter' && addResource(bucket.id)} autoFocus/>
+                    <button className="btn btn-primary btn-sm" onClick={() => addResource(bucket.id)}>Añadir</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setUploadingSport(null); setNewResName(''); }}>
+                      <svg width="12" height="12"><Icon.X/></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button style={{ display:'flex', alignItems:'center', gap:6, padding:'10px 14px',
+                    fontSize:13, color:bucket.color, fontWeight:700, background:'none', border:'none', cursor:'pointer' }}
+                    onClick={() => setUploadingSport(bucket.id)}>
+                    <svg width="13" height="13"><Icon.Plus/></svg>
+                    Subir recurso para {bucket.name === 'Todos los entrenadores' ? 'todos' : `entrenadores de ${bucket.name}`}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 const NAV_GROUPS = [
   { label:'Gestión', items:[
     { id:'dashboard',  label:'Inicio',       icon:<Icon.Home/> },
@@ -240,9 +366,9 @@ export default function CoordinatorApp() {
               )}
               <div className="section-label">Deportes</div>
               <div className="desktop-grid-3 grid-2" style={{ marginBottom:16 }}>
-                {sports.map((s,i) => {
+                {sports.map((s) => {
                   const ac = s.groups.reduce((acc,gid)=>acc+(groups[gid]?.count||0),0);
-                  const pct = [82,75,88,91,69,84][i]||80;
+                  const pct = totalAthletes > 0 ? Math.round((ac/totalAthletes)*100) : 0;
                   return (
                     <div key={s.id} className="sport-card" style={{ borderColor:s.color }}>
                       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
@@ -253,7 +379,7 @@ export default function CoordinatorApp() {
                       <div style={{ height:4, background:'var(--border)', borderRadius:99, marginBottom:4, overflow:'hidden' }}>
                         <div style={{ height:'100%', width:`${pct}%`, background:s.color, borderRadius:99 }}/>
                       </div>
-                      <div className="sport-card-info">{s.groups.length} grupos · {ac} atletas</div>
+                      <div className="sport-card-info">{s.groups.length} grupos · {ac} atletas · {pct}% del centro</div>
                     </div>
                   );
                 })}
@@ -586,6 +712,8 @@ export default function CoordinatorApp() {
                   <svg width="13" height="13"><Icon.Plus/></svg> Subir
                 </button>
               </div>
+
+              {/* Centro docs */}
               {[['rgpd','RGPD'],['inscripcion','Inscripción'],['reglamento','Reglamento'],['seguridad','Seguridad']].map(([cat,label]) => {
                 const catDocs = docs.filter(d => d.cat===cat && (!docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase())));
                 if (!catDocs.length) return null;
@@ -613,9 +741,9 @@ export default function CoordinatorApp() {
                   </div>
                 );
               })}
-              {docs.filter(d => !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase())).length === 0 && (
-                <EmptyState icon={<Icon.File/>} title="Sin documentos" text="Sube el primer documento del centro"/>
-              )}
+
+              {/* Recursos para entrenadores */}
+              <ResourcesSection sports={sports} docSearch={docSearch}/>
             </>
           )}
 

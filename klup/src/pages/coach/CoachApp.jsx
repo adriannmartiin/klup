@@ -8,12 +8,14 @@ import { SPORTS, GROUPS, ATHLETES, OBSERVATIONS, PENDING_REQUESTS, POSTS,
          HEALTH_RECORDS, SKILL_ASSESSMENTS, ATTENDANCE_TODAY,
          getSport, timeAgo, countAttendance } from '../../lib/mockData';
 import Messaging from '../../components/Messaging';
+import EvaluationTab from '../../components/EvaluationTab';
 
 Icon.Megaphone  = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>);
 Icon.Clipboard  = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>);
 Icon.Warning    = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);
 Icon.Photos     = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>);
 Icon.Trophy     = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>);
+Icon.BookOpen   = () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>);
 
 const MY_GROUP_IDS = ['g1', 'g4'];
 
@@ -27,6 +29,8 @@ const GROUP_TABS = [
   { id:'mensajes',    label:'Mensajes',  icon:<Icon.Megaphone/> },
   { id:'incidencias', label:'Incid.',    icon:<Icon.Warning/> },
   { id:'galeria',     label:'Galería',   icon:<Icon.Photos/> },
+  { id:'recursos',    label:'Recursos',   icon:<Icon.BookOpen/> },
+  { id:'evaluacion',  label:'Evaluación', icon:<Icon.Star/> },
 ];
 
 // Months helper
@@ -773,6 +777,16 @@ export default function CoachApp() {
                   )}
                 </>
               )}
+
+              {/* ── RECURSOS ── */}
+              {activeTab === 'recursos' && (
+                <CoachResources sportId={sport?.id}/>
+              )}
+
+              {/* ── EVALUACIÓN ── */}
+              {activeTab === 'evaluacion' && (
+                <EvaluationTab groupId={selectedGroupId} sport={sport}/>
+              )}
             </div>
           </>
         )}
@@ -838,6 +852,88 @@ export default function CoachApp() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Coach Resources component ────────────────────────────────
+
+const ALL_RESOURCES = [
+  { id:'rec1', sportId:'all', name:'Protocolo de calentamiento general.pdf', size:'1.2 MB' },
+  { id:'rec2', sportId:'s1',  name:'Técnica individual — Fútbol.pdf',        size:'3.4 MB' },
+  { id:'rec3', sportId:'s1',  name:'Ejercicios de pase corto.pdf',           size:'2.1 MB' },
+  { id:'rec4', sportId:'s2',  name:'Fundamentos del voley — Principiantes.pdf', size:'1.8 MB' },
+  { id:'rec5', sportId:'s3',  name:'Rutinas de rítmica benjamín.pdf',        size:'4.2 MB' },
+  { id:'rec6', sportId:'s5',  name:'Kata básicos karate.pdf',                size:'2.7 MB' },
+  { id:'rec7', sportId:'s4',  name:'Circuitos FitKids — Nivel 1.pdf',       size:'1.5 MB' },
+];
+
+function CoachResources({ sportId }) {
+  const myResources = ALL_RESOURCES.filter(r => r.sportId === 'all' || r.sportId === sportId);
+  const sport = SPORTS.find(s => s.id === sportId);
+
+  return (
+    <>
+      <div style={{ background:'#f0f7ff', border:'1px solid #bfdbfe', borderRadius:'var(--r-md)',
+        padding:'10px 14px', marginBottom:16, fontSize:13, color:'#1e40af' }}>
+        <div style={{ fontWeight:700, marginBottom:2 }}>📚 Recursos del coordinador</div>
+        <div style={{ fontSize:12, color:'#3b82f6' }}>
+          Paquetes de recursos subidos por el coordinador para tu deporte
+        </div>
+      </div>
+
+      {myResources.length === 0 ? (
+        <div style={{ textAlign:'center', padding:'32px 16px', color:'var(--light)', fontSize:13 }}>
+          El coordinador todavía no ha subido recursos para este deporte
+        </div>
+      ) : (
+        <>
+          {/* General resources */}
+          {myResources.filter(r=>r.sportId==='all').length > 0 && (
+            <>
+              <div className="section-label">Para todos los entrenadores</div>
+              {myResources.filter(r=>r.sportId==='all').map(res => (
+                <ResourceCard key={res.id} res={res} color="#64748b"/>
+              ))}
+            </>
+          )}
+          {/* Sport-specific resources */}
+          {myResources.filter(r=>r.sportId!=='all').length > 0 && (
+            <>
+              <div className="section-label" style={{ marginTop:12 }}>
+                Recursos de {sport?.name}
+              </div>
+              {myResources.filter(r=>r.sportId!=='all').map(res => (
+                <ResourceCard key={res.id} res={res} color={sport?.color||'#2563eb'}/>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function ResourceCard({ res, color }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px',
+      background:'var(--surface)', borderRadius:'var(--r-md)', marginBottom:8,
+      border:`1px solid ${color}20` }}>
+      <div style={{ width:36, height:36, background:`${color}15`, borderRadius:'var(--r-sm)',
+        display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"
+          width="18" height="18">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+        </svg>
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:'var(--text)' }} className="truncate">{res.name}</div>
+        <div style={{ fontSize:11, color:'var(--muted)' }}>{res.size} · PDF</div>
+      </div>
+      <button className="btn btn-sm" style={{ background:`${color}15`, color, border:'none', fontWeight:700, flexShrink:0 }}>
+        Abrir
+      </button>
     </div>
   );
 }
